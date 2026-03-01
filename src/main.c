@@ -15,6 +15,7 @@
 #include "simulation_spatial_hash.h"
 #include "simulation_step.h"
 #include "simulation_viscosity.h"
+#include "simulation_volume_density.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -48,6 +49,8 @@ typedef struct Application
     SimulationViscositySettings viscosity_settings;
     SimulationSpatialHash spatial_hash;
     SimulationSpatialHashSettings spatial_hash_settings;
+    SimulationVolumeDensity volume_density;
+    SimulationVolumeDensitySettings volume_density_settings;
     Vec3 simulation_bounds_size;
     SimulationSpawnData initial_spawn_data;
     bool reset_requested;
@@ -84,6 +87,7 @@ static void Application_UpdateSimulation(Application *application, f32 frame_del
 static void Application_UpdateDensityVisualizationRange(Application *application);
 static void Application_UpdateVelocityVisualizationRange(Application *application);
 static void Application_LogSpatialHashInspection(Application *application);
+static void Application_LogVolumeDensitySummary(Application *application);
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode);
 static void OpenGL_LogContextInfo(void);
 static void OpenGL_UpdateViewport(Application *application);
@@ -164,6 +168,11 @@ int main(void)
     }
 
     if (!SimulationPipeline_RunValidation())
+    {
+        return 1;
+    }
+
+    if (!SimulationVolumeDensity_RunValidation())
     {
         return 1;
     }
@@ -296,6 +305,14 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 if (application != NULL)
                 {
                     Application_LogSpatialHashInspection(application);
+                }
+                return 0;
+            }
+            if (wide_param == 'J')
+            {
+                if (application != NULL)
+                {
+                    Application_LogVolumeDensitySummary(application);
                 }
                 return 0;
             }
@@ -461,6 +478,7 @@ static void Win32_DestroyWindowAndContext(Application *application)
     SimulationPressure_Shutdown(&application->pressure);
     SimulationViscosity_Shutdown(&application->viscosity);
     SimulationSpatialHash_Shutdown(&application->spatial_hash);
+    SimulationVolumeDensity_Shutdown(&application->volume_density);
     Simulation_DestroyParticleBuffers(&application->particle_buffers);
     Simulation_ReleaseSpawnData(&application->initial_spawn_data);
 
@@ -534,6 +552,12 @@ static bool Application_InitializeSimulationView(Application *application)
     application->viscosity_settings.smoothing_radius = 0.5f;
     application->viscosity_settings.viscosity_strength = 0.12f;
     application->spatial_hash_settings.cell_size = 0.5f;
+    application->volume_density_settings.bounds_size = application->simulation_bounds_size;
+    application->volume_density_settings.smoothing_radius = 0.5f;
+    application->volume_density_settings.resolution_x = 24;
+    application->volume_density_settings.resolution_y = 24;
+    application->volume_density_settings.resolution_z = 24;
+    application->volume_density_settings.density_scale = 0.015f;
     application->pipeline_settings.substeps_per_simulation_step = 3;
     application->pipeline_settings.time_scale = 1.0f;
     application->pipeline_settings.step_settings = application->step_settings;
@@ -619,8 +643,23 @@ static bool Application_InitializeSimulationView(Application *application)
         return false;
     }
 
+    if (!SimulationVolumeDensity_Initialize(&application->volume_density, application->volume_density_settings))
+    {
+        SimulationPipeline_Shutdown(&application->pipeline);
+        SimulationViscosity_Shutdown(&application->viscosity);
+        SimulationPressure_Shutdown(&application->pressure);
+        SimulationDensity_Shutdown(&application->density);
+        SimulationCollision_Shutdown(&application->collision);
+        SimulationSpatialHash_Shutdown(&application->spatial_hash);
+        SimulationStepper_Shutdown(&application->stepper);
+        SimulationRenderer_Shutdown(&application->renderer);
+        Simulation_DestroyParticleBuffers(&application->particle_buffers);
+        return false;
+    }
+
     if (!Application_RebuildSimulationDerivedState(application))
     {
+        SimulationVolumeDensity_Shutdown(&application->volume_density);
         SimulationPipeline_Shutdown(&application->pipeline);
         SimulationViscosity_Shutdown(&application->viscosity);
         SimulationPressure_Shutdown(&application->pressure);
@@ -636,7 +675,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection.");
+    Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
 }
@@ -652,6 +691,12 @@ static bool Application_RebuildSimulationDerivedState(Application *application)
     if (!rebuild_success)
     {
         Base_LogError("Failed to rebuild simulation derived state.");
+        return false;
+    }
+
+    if (!SimulationVolumeDensity_Run(&application->volume_density, &application->particle_buffers, application->volume_density_settings))
+    {
+        Base_LogError("Failed to rebuild the volume density texture.");
         return false;
     }
 
@@ -684,6 +729,12 @@ static bool Application_RunSimulationFixedStep(Application *application, f32 sim
     if (!run_success)
     {
         Base_LogError("Stable simulation step failed.");
+        return false;
+    }
+
+    if (!SimulationVolumeDensity_Run(&application->volume_density, &application->particle_buffers, application->volume_density_settings))
+    {
+        Base_LogError("Volume density update failed.");
         return false;
     }
 
@@ -957,6 +1008,27 @@ static void Application_LogSpatialHashInspection(Application *application)
     free(spatial_key_values);
     free(spatial_hash_values);
     free(spatial_offset_values);
+}
+
+static void Application_LogVolumeDensitySummary(Application *application)
+{
+    SimulationVolumeDensityReadbackSummary summary = {0};
+    if (!SimulationVolumeDensity_ReadbackSummary(&application->volume_density, &summary))
+    {
+        Base_LogError("Volume density summary readback failed.");
+        return;
+    }
+
+    Base_LogInfo(
+        "Volume density: min=%.5f max=%.5f avg=%.5f center_slice_avg=%.5f center_voxel=%.5f resolution=%dx%dx%d",
+        summary.minimum_density,
+        summary.maximum_density,
+        summary.average_density,
+        summary.center_slice_average_density,
+        summary.center_voxel_density,
+        application->volume_density_settings.resolution_x,
+        application->volume_density_settings.resolution_y,
+        application->volume_density_settings.resolution_z);
 }
 
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode)

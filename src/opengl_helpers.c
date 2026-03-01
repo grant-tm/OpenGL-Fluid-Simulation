@@ -8,9 +8,18 @@
 
 typedef void (APIENTRYP GlDispatchComputeFunction)(GLuint group_count_x, GLuint group_count_y, GLuint group_count_z);
 typedef void (APIENTRYP GlMemoryBarrierFunction)(GLbitfield barriers);
+typedef void (APIENTRYP GlBindImageTextureFunction)(
+    GLuint unit,
+    GLuint texture,
+    GLint level,
+    GLboolean layered,
+    GLint layer,
+    GLenum access,
+    GLenum format);
 
 static GlDispatchComputeFunction gl_dispatch_compute = NULL;
 static GlMemoryBarrierFunction gl_memory_barrier = NULL;
+static GlBindImageTextureFunction gl_bind_image_texture = NULL;
 
 static void *OpenGL_LoadProcedureAddress (const char *procedure_name)
 {
@@ -160,6 +169,44 @@ void OpenGL_MemoryBarrier (u32 barrier_flags)
 {
     Base_Assert(gl_memory_barrier != NULL);
     gl_memory_barrier(barrier_flags);
+}
+
+bool OpenGL_LoadImageFunctions (void)
+{
+    gl_bind_image_texture = (GlBindImageTextureFunction) OpenGL_LoadProcedureAddress("glBindImageTexture");
+
+    if (gl_bind_image_texture == NULL)
+    {
+        Base_LogError("Failed to load required image texture functions.");
+        return false;
+    }
+
+    return true;
+}
+
+bool OpenGL_ImageFunctionsAreAvailable (void)
+{
+    return gl_bind_image_texture != NULL;
+}
+
+void OpenGL_BindImageTexture (
+    u32 unit_index,
+    u32 texture_identifier,
+    i32 mip_level,
+    bool is_layered,
+    i32 layer_index,
+    u32 access,
+    u32 image_format)
+{
+    Base_Assert(gl_bind_image_texture != NULL);
+    gl_bind_image_texture(
+        unit_index,
+        texture_identifier,
+        mip_level,
+        is_layered ? GL_TRUE : GL_FALSE,
+        layer_index,
+        access,
+        image_format);
 }
 
 u32 OpenGL_CompileShaderFromSource (u32 shader_type, const char *shader_source, const char *debug_name)
@@ -319,6 +366,116 @@ bool OpenGL_ReadBuffer (OpenGLBuffer *buffer, void *destination, i32 size_in_byt
     glBindBuffer(buffer->target, buffer->identifier);
     glGetBufferSubData(buffer->target, 0, size_in_bytes, destination);
     glBindBuffer(buffer->target, 0);
+    return true;
+}
+
+bool OpenGL_CreateTexture3D (
+    OpenGLTexture3D *texture,
+    i32 width,
+    i32 height,
+    i32 depth,
+    u32 internal_format,
+    u32 format,
+    u32 type,
+    const void *initial_data)
+{
+    Base_Assert(texture != NULL);
+
+    memset(texture, 0, sizeof(*texture));
+    if (width <= 0 || height <= 0 || depth <= 0)
+    {
+        Base_LogError("OpenGL 3D texture dimensions must be positive.");
+        return false;
+    }
+
+    glGenTextures(1, &texture->identifier);
+    if (texture->identifier == 0)
+    {
+        Base_LogError("Failed to create OpenGL 3D texture.");
+        return false;
+    }
+
+    texture->width = width;
+    texture->height = height;
+    texture->depth = depth;
+    texture->internal_format = internal_format;
+
+    glBindTexture(GL_TEXTURE_3D, texture->identifier);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexImage3D(GL_TEXTURE_3D, 0, (GLint) internal_format, width, height, depth, 0, format, type, initial_data);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    return true;
+}
+
+void OpenGL_DestroyTexture3D (OpenGLTexture3D *texture)
+{
+    if (texture == NULL) return;
+
+    if (texture->identifier != 0)
+    {
+        glDeleteTextures(1, &texture->identifier);
+    }
+
+    memset(texture, 0, sizeof(*texture));
+}
+
+bool OpenGL_ClearTexture3D (OpenGLTexture3D *texture, u32 format, u32 type, const void *clear_value)
+{
+    Base_Assert(texture != NULL);
+    Base_Assert(clear_value != NULL);
+    (void) clear_value;
+
+    if (texture->identifier == 0)
+    {
+        Base_LogError("Cannot clear an uninitialized OpenGL 3D texture.");
+        return false;
+    }
+
+    glBindTexture(GL_TEXTURE_3D, texture->identifier);
+    glTexImage3D(
+        GL_TEXTURE_3D,
+        0,
+        (GLint) texture->internal_format,
+        texture->width,
+        texture->height,
+        texture->depth,
+        0,
+        format,
+        type,
+        NULL);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    return true;
+}
+
+bool OpenGL_ReadTexture3D (
+    OpenGLTexture3D *texture,
+    u32 format,
+    u32 type,
+    void *destination,
+    i32 destination_size_in_bytes)
+{
+    Base_Assert(texture != NULL);
+    Base_Assert(destination != NULL);
+
+    if (texture->identifier == 0)
+    {
+        Base_LogError("Cannot read an uninitialized OpenGL 3D texture.");
+        return false;
+    }
+
+    if (destination_size_in_bytes <= 0)
+    {
+        Base_LogError("OpenGL 3D texture read size must be positive.");
+        return false;
+    }
+
+    glBindTexture(GL_TEXTURE_3D, texture->identifier);
+    glGetTexImage(GL_TEXTURE_3D, 0, format, type, destination);
+    glBindTexture(GL_TEXTURE_3D, 0);
     return true;
 }
 
