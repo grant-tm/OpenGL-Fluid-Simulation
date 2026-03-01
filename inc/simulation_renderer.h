@@ -20,9 +20,13 @@ typedef struct SimulationRenderer
     u32 volume_program_identifier;
     u32 screen_fluid_thickness_program_identifier;
     u32 screen_fluid_depth_program_identifier;
+    u32 screen_fluid_prepare_program_identifier;
     u32 screen_fluid_blur_program_identifier;
+    u32 screen_fluid_normal_program_identifier;
     u32 screen_fluid_composite_program_identifier;
     u32 particle_vao_identifier;
+    u32 screen_fluid_quad_vao_identifier;
+    u32 screen_fluid_quad_vbo_identifier;
     u32 bounds_vao_identifier;
     u32 bounds_vbo_identifier;
     u32 volume_vao_identifier;
@@ -35,6 +39,9 @@ typedef struct SimulationRenderer
     u32 screen_fluid_depth_texture_identifier;
     u32 screen_fluid_depth_blur_texture_identifier;
     u32 screen_fluid_blur_texture_identifier;
+    u32 screen_fluid_comp_texture_identifier;
+    u32 screen_fluid_comp_blur_texture_identifier;
+    u32 screen_fluid_normal_texture_identifier;
     i32 screen_fluid_texture_width;
     i32 screen_fluid_texture_height;
     i32 particle_projection_uniform;
@@ -65,15 +72,25 @@ typedef struct SimulationRenderer
     i32 screen_fluid_depth_view_uniform;
     i32 screen_fluid_depth_point_size_uniform;
     i32 screen_fluid_depth_viewport_height_uniform;
+    i32 screen_fluid_prepare_depth_texture_uniform;
+    i32 screen_fluid_prepare_thickness_texture_uniform;
     i32 screen_fluid_blur_texture_uniform;
     i32 screen_fluid_blur_filter_mode_uniform;
     i32 screen_fluid_blur_depth_texture_uniform;
     i32 screen_fluid_blur_direction_uniform;
     i32 screen_fluid_blur_texel_size_uniform;
+    i32 screen_fluid_blur_projection_scale_uniform;
+    i32 screen_fluid_blur_image_width_uniform;
+    i32 screen_fluid_blur_world_radius_uniform;
+    i32 screen_fluid_blur_max_radius_uniform;
+    i32 screen_fluid_normal_comp_texture_uniform;
+    i32 screen_fluid_normal_texel_size_uniform;
+    i32 screen_fluid_normal_projection_uniform;
     i32 screen_fluid_composite_texture_uniform;
     i32 screen_fluid_composite_depth_texture_uniform;
     i32 screen_fluid_composite_texel_size_uniform;
     i32 screen_fluid_composite_projection_uniform;
+    i32 screen_fluid_composite_normal_texture_uniform;
 } SimulationRenderer;
 
 typedef enum SimulationRenderMode

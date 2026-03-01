@@ -2,73 +2,74 @@
 
 uniform sampler2D u_fluid_texture;
 uniform sampler2D u_depth_texture;
-uniform vec2 u_texel_size;
-uniform mat4 u_projection;
+uniform sampler2D u_normal_texture;
 
 in vec2 v_texture_coordinate;
 
 out vec4 fragment_color;
 
-float SampleThickness (vec2 sample_texture_coordinate)
+vec3 SampleEnvironment (vec3 direction)
 {
-    vec4 fluid_sample = texture(u_fluid_texture, sample_texture_coordinate);
-    return max(max(fluid_sample.r, fluid_sample.g), max(fluid_sample.b, fluid_sample.a));
-}
+    float sky_factor = clamp(direction.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 horizon_color = vec3(0.80, 0.87, 0.97);
+    vec3 zenith_color = vec3(0.16, 0.34, 0.62);
+    vec3 floor_color = vec3(0.04, 0.05, 0.07);
 
-float SampleDepth (vec2 sample_texture_coordinate)
-{
-    return texture(u_depth_texture, sample_texture_coordinate).r;
-}
+    if (direction.y >= 0.0)
+    {
+        return mix(horizon_color, zenith_color, pow(sky_factor, 0.7));
+    }
 
-vec3 ViewPositionFromLinearDepth (vec2 sample_texture_coordinate, float linear_depth)
-{
-    vec2 normalized_device_coordinate = sample_texture_coordinate * 2.0 - vec2(1.0);
-
-    return vec3(
-        normalized_device_coordinate.x * linear_depth / u_projection[0][0],
-        normalized_device_coordinate.y * linear_depth / u_projection[1][1],
-        -linear_depth);
+    return mix(horizon_color * 0.4, floor_color, clamp(-direction.y, 0.0, 1.0));
 }
 
 void main(void)
 {
-    float center_thickness = SampleThickness(v_texture_coordinate);
-    float center_depth = SampleDepth(v_texture_coordinate);
-    if (center_thickness <= 0.010 || center_depth > 1000.0)
+    vec4 packed_sample = texture(u_fluid_texture, v_texture_coordinate);
+    float smooth_depth = packed_sample.r;
+    float smooth_thickness = packed_sample.g;
+    float hard_thickness = packed_sample.b;
+    float hard_depth = packed_sample.a;
+
+    if (smooth_thickness <= 0.010 || smooth_depth > 1000.0)
     {
         discard;
     }
 
-    vec2 right_offset = vec2(u_texel_size.x, 0.0);
-    vec2 up_offset = vec2(0.0, u_texel_size.y);
-    vec3 center_view_position = ViewPositionFromLinearDepth(v_texture_coordinate, center_depth);
-    float depth_right = SampleDepth(v_texture_coordinate + right_offset);
-    float depth_left = SampleDepth(v_texture_coordinate - right_offset);
-    float depth_up = SampleDepth(v_texture_coordinate + up_offset);
-    float depth_down = SampleDepth(v_texture_coordinate - up_offset);
-    vec3 ddx_forward = ViewPositionFromLinearDepth(v_texture_coordinate + right_offset, depth_right) - center_view_position;
-    vec3 ddx_backward = center_view_position - ViewPositionFromLinearDepth(v_texture_coordinate - right_offset, depth_left);
-    vec3 ddy_forward = ViewPositionFromLinearDepth(v_texture_coordinate + up_offset, depth_up) - center_view_position;
-    vec3 ddy_backward = center_view_position - ViewPositionFromLinearDepth(v_texture_coordinate - up_offset, depth_down);
-    vec3 ddx = (abs(ddx_backward.z) < abs(ddx_forward.z)) ? ddx_backward : ddx_forward;
-    vec3 ddy = (abs(ddy_backward.z) < abs(ddy_forward.z)) ? ddy_backward : ddy_forward;
-    vec3 surface_normal = normalize(cross(ddy, ddx));
-    vec3 light_direction = normalize(vec3(-0.45, 0.70, 0.55));
-    vec3 view_direction = vec3(0.0, 0.0, 1.0);
-    vec3 half_vector = normalize(light_direction + view_direction);
+    vec3 surface_normal = texture(u_normal_texture, v_texture_coordinate).xyz * 2.0 - vec3(1.0);
+    if (dot(surface_normal, surface_normal) < 0.25)
+    {
+        discard;
+    }
+    surface_normal = normalize(surface_normal);
 
-    float diffuse_light = max(dot(surface_normal, light_direction), 0.0);
-    float rim_light = pow(1.0 - max(dot(surface_normal, view_direction), 0.0), 3.0);
-    float specular_light = pow(max(dot(surface_normal, half_vector), 0.0), 24.0);
-    float body_factor = clamp(center_thickness * 1.8, 0.0, 1.0);
+    vec2 normalized_device_coordinate = v_texture_coordinate * 2.0 - vec2(1.0);
+    vec3 view_direction = normalize(vec3(normalized_device_coordinate.x, normalized_device_coordinate.y, -1.5));
+    vec3 reflection_direction = reflect(view_direction, surface_normal);
+    vec3 refraction_direction = refract(view_direction, surface_normal, 1.0 / 1.33);
+    if (dot(refraction_direction, refraction_direction) < 0.001)
+    {
+        refraction_direction = view_direction;
+    }
 
-    vec3 deep_color = vec3(0.03, 0.11, 0.23);
-    vec3 shallow_color = vec3(0.14, 0.46, 0.78);
-    vec3 highlight_color = vec3(0.92, 0.98, 1.0);
-    vec3 base_color = mix(deep_color, shallow_color, body_factor);
-    vec3 shaded_color = base_color * (0.50 + diffuse_light * 0.65);
-    shaded_color += highlight_color * (specular_light * 0.35 + rim_light * 0.06);
+    float view_normal_alignment = clamp(dot(-view_direction, surface_normal), 0.0, 1.0);
+    float fresnel_factor = 0.02 + 0.98 * pow(1.0 - view_normal_alignment, 5.0);
+    vec3 extinction_coefficients = vec3(1.7, 0.85, 0.28);
+    vec3 transmission_color = exp(-smooth_thickness * 2.6 * extinction_coefficients);
+    vec3 reflected_color = SampleEnvironment(reflection_direction);
+    vec3 refracted_color = SampleEnvironment(refraction_direction);
+    vec3 water_body_color = mix(vec3(0.06, 0.18, 0.31), vec3(0.12, 0.42, 0.68), clamp(smooth_thickness * 1.2, 0.0, 1.0));
+    vec3 absorbed_color = mix(water_body_color, refracted_color, transmission_color);
+    vec3 final_color = mix(absorbed_color, reflected_color, fresnel_factor);
 
-    float alpha_value = clamp(center_thickness * 1.10 + rim_light * 0.04, 0.0, 0.88);
-    fragment_color = vec4(shaded_color, alpha_value);
+    float edge_boost = clamp((hard_thickness - smooth_thickness) * 2.2, 0.0, 1.0);
+    final_color += vec3(0.12, 0.18, 0.24) * edge_boost;
+
+    float alpha_value = clamp(smooth_thickness * 1.25 + fresnel_factor * 0.12, 0.0, 0.97);
+    if (hard_depth > 1000.0)
+    {
+        alpha_value *= 0.0;
+    }
+
+    fragment_color = vec4(final_color, alpha_value);
 }
