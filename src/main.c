@@ -538,7 +538,7 @@ static bool Application_InitializeSimulationView(Application *application)
     SimulationSpawnBox spawn_box = {0};
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
-    spawn_box.particle_spacing = 0.25f;
+    spawn_box.particle_spacing = 0.20f;
     spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
 
     if (!Simulation_GenerateSpawnDataBox(&application->initial_spawn_data, spawn_box))

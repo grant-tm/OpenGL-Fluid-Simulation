@@ -19,6 +19,7 @@ typedef struct SimulationRenderer
     u32 line_program_identifier;
     u32 volume_program_identifier;
     u32 screen_fluid_thickness_program_identifier;
+    u32 screen_fluid_depth_program_identifier;
     u32 screen_fluid_blur_program_identifier;
     u32 screen_fluid_composite_program_identifier;
     u32 particle_vao_identifier;
@@ -31,6 +32,8 @@ typedef struct SimulationRenderer
     u32 screen_fluid_blur_framebuffer_identifier;
     u32 screen_fluid_depth_renderbuffer_identifier;
     u32 screen_fluid_thickness_texture_identifier;
+    u32 screen_fluid_depth_texture_identifier;
+    u32 screen_fluid_depth_blur_texture_identifier;
     u32 screen_fluid_blur_texture_identifier;
     i32 screen_fluid_texture_width;
     i32 screen_fluid_texture_height;
@@ -58,10 +61,16 @@ typedef struct SimulationRenderer
     i32 screen_fluid_thickness_projection_uniform;
     i32 screen_fluid_thickness_view_uniform;
     i32 screen_fluid_thickness_point_size_uniform;
+    i32 screen_fluid_depth_projection_uniform;
+    i32 screen_fluid_depth_view_uniform;
+    i32 screen_fluid_depth_point_size_uniform;
     i32 screen_fluid_blur_texture_uniform;
+    i32 screen_fluid_blur_filter_mode_uniform;
+    i32 screen_fluid_blur_depth_texture_uniform;
     i32 screen_fluid_blur_direction_uniform;
     i32 screen_fluid_blur_texel_size_uniform;
     i32 screen_fluid_composite_texture_uniform;
+    i32 screen_fluid_composite_depth_texture_uniform;
     i32 screen_fluid_composite_texel_size_uniform;
 } SimulationRenderer;
 
