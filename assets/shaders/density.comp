@@ -1,0 +1,124 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 1) buffer ParticlePredictedPositions
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 3) buffer ParticleDensities
+{
+    vec4 densities[];
+};
+
+layout(std430, binding = 4) buffer SpatialKeys
+{
+    uint spatial_keys[];
+};
+
+layout(std430, binding = 5) buffer SpatialHashes
+{
+    uint spatial_hashes[];
+};
+
+layout(std430, binding = 7) buffer SpatialOffsets
+{
+    uint spatial_offsets[];
+};
+
+uniform float u_smoothing_radius;
+uniform int u_particle_count;
+uniform int u_table_size;
+
+const uint HASH_K1 = 15823u;
+const uint HASH_K2 = 9737333u;
+const uint HASH_K3 = 440817757u;
+
+const ivec3 OFFSETS_3D[27] = ivec3[](
+    ivec3(-1, -1, -1), ivec3(0, -1, -1), ivec3(1, -1, -1),
+    ivec3(-1,  0, -1), ivec3(0,  0, -1), ivec3(1,  0, -1),
+    ivec3(-1,  1, -1), ivec3(0,  1, -1), ivec3(1,  1, -1),
+    ivec3(-1, -1,  0), ivec3(0, -1,  0), ivec3(1, -1,  0),
+    ivec3(-1,  0,  0), ivec3(0,  0,  0), ivec3(1,  0,  0),
+    ivec3(-1,  1,  0), ivec3(0,  1,  0), ivec3(1,  1,  0),
+    ivec3(-1, -1,  1), ivec3(0, -1,  1), ivec3(1, -1,  1),
+    ivec3(-1,  0,  1), ivec3(0,  0,  1), ivec3(1,  0,  1),
+    ivec3(-1,  1,  1), ivec3(0,  1,  1), ivec3(1,  1,  1)
+);
+
+uint HashCell3D(ivec3 cell)
+{
+    uvec3 unsigned_cell = uvec3(uint(cell.x), uint(cell.y), uint(cell.z));
+    return unsigned_cell.x * HASH_K1 ^ unsigned_cell.y * HASH_K2 ^ unsigned_cell.z * HASH_K3;
+}
+
+float DensityKernel(float distance_to_neighbor, float smoothing_radius)
+{
+    if (distance_to_neighbor >= smoothing_radius) return 0.0;
+    float remaining_distance = smoothing_radius - distance_to_neighbor;
+    float scale = 15.0 / (2.0 * 3.14159265 * pow(smoothing_radius, 5.0));
+    return remaining_distance * remaining_distance * scale;
+}
+
+float NearDensityKernel(float distance_to_neighbor, float smoothing_radius)
+{
+    if (distance_to_neighbor >= smoothing_radius) return 0.0;
+    float remaining_distance = smoothing_radius - distance_to_neighbor;
+    float scale = 15.0 / (3.14159265 * pow(smoothing_radius, 6.0));
+    return remaining_distance * remaining_distance * remaining_distance * scale;
+}
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    vec3 particle_position = predicted_positions[particle_index].xyz;
+    ivec3 origin_cell = ivec3(floor(particle_position / u_smoothing_radius));
+    float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
+
+    float density_value = 0.0;
+    float near_density_value = 0.0;
+
+    for (int offset_index = 0; offset_index < 27; offset_index++)
+    {
+        ivec3 neighbor_cell = origin_cell + OFFSETS_3D[offset_index];
+        uint hash = HashCell3D(neighbor_cell);
+        uint key = hash % uint(u_table_size);
+        uint sorted_index = spatial_offsets[key];
+
+        while (sorted_index < uint(u_particle_count))
+        {
+            uint sorted_key = spatial_keys[sorted_index];
+            if (sorted_key != key)
+            {
+                break;
+            }
+
+            if (spatial_hashes[sorted_index] != hash)
+            {
+                sorted_index += 1u;
+                continue;
+            }
+
+            vec3 neighbor_position = predicted_positions[sorted_index].xyz;
+            vec3 offset_to_neighbor = neighbor_position - particle_position;
+            float distance_squared = dot(offset_to_neighbor, offset_to_neighbor);
+
+            if (distance_squared <= smoothing_radius_squared)
+            {
+                float distance_to_neighbor = sqrt(distance_squared);
+                density_value += DensityKernel(distance_to_neighbor, u_smoothing_radius);
+                near_density_value += NearDensityKernel(distance_to_neighbor, u_smoothing_radius);
+            }
+
+            sorted_index += 1u;
+        }
+    }
+
+    densities[particle_index] = vec4(density_value, near_density_value, 0.0, 0.0);
+}

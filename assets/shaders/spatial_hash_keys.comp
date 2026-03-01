@@ -1,0 +1,57 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 1) buffer ParticlePredictedPositions
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 4) buffer SpatialKeys
+{
+    uint spatial_keys[];
+};
+
+layout(std430, binding = 5) buffer SpatialHashes
+{
+    uint spatial_hashes[];
+};
+
+layout(std430, binding = 6) buffer SpatialIndices
+{
+    uint spatial_indices[];
+};
+
+uniform float u_cell_size;
+uniform int u_particle_count;
+uniform int u_table_size;
+
+const uint HASH_K1 = 15823u;
+const uint HASH_K2 = 9737333u;
+const uint HASH_K3 = 440817757u;
+
+uvec3 ConvertSignedCellToUnsigned(ivec3 cell)
+{
+    return uvec3(uint(cell.x), uint(cell.y), uint(cell.z));
+}
+
+uint HashCell3D(ivec3 cell)
+{
+    uvec3 unsigned_cell = ConvertSignedCellToUnsigned(cell);
+    return unsigned_cell.x * HASH_K1 ^ unsigned_cell.y * HASH_K2 ^ unsigned_cell.z * HASH_K3;
+}
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    ivec3 cell = ivec3(floor(predicted_positions[particle_index].xyz / u_cell_size));
+    uint hash = HashCell3D(cell);
+    spatial_keys[particle_index] = hash % uint(u_table_size);
+    spatial_hashes[particle_index] = hash;
+    spatial_indices[particle_index] = particle_index;
+}

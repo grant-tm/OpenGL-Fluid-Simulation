@@ -1,0 +1,66 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 1) buffer ParticlePredictedPositions
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 2) buffer ParticleVelocities
+{
+    vec4 velocities[];
+};
+
+uniform int u_particle_count;
+uniform vec3 u_bounds_size;
+uniform float u_collision_damping;
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    vec3 half_size = u_bounds_size * 0.5;
+    vec3 position = predicted_positions[particle_index].xyz;
+    vec3 velocity = velocities[particle_index].xyz;
+
+    if (position.x < -half_size.x)
+    {
+        position.x = -half_size.x;
+        velocity.x *= -u_collision_damping;
+    }
+    else if (position.x > half_size.x)
+    {
+        position.x = half_size.x;
+        velocity.x *= -u_collision_damping;
+    }
+
+    if (position.y < -half_size.y)
+    {
+        position.y = -half_size.y;
+        velocity.y *= -u_collision_damping;
+    }
+    else if (position.y > half_size.y)
+    {
+        position.y = half_size.y;
+        velocity.y *= -u_collision_damping;
+    }
+
+    if (position.z < -half_size.z)
+    {
+        position.z = -half_size.z;
+        velocity.z *= -u_collision_damping;
+    }
+    else if (position.z > half_size.z)
+    {
+        position.z = half_size.z;
+        velocity.z *= -u_collision_damping;
+    }
+
+    predicted_positions[particle_index].xyz = position;
+    velocities[particle_index].xyz = velocity;
+}
