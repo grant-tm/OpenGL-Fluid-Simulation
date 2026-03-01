@@ -172,6 +172,7 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->screen_fluid_depth_projection_uniform = glGetUniformLocation(renderer->screen_fluid_depth_program_identifier, "u_projection");
     renderer->screen_fluid_depth_view_uniform = glGetUniformLocation(renderer->screen_fluid_depth_program_identifier, "u_view");
     renderer->screen_fluid_depth_point_size_uniform = glGetUniformLocation(renderer->screen_fluid_depth_program_identifier, "u_point_size");
+    renderer->screen_fluid_depth_viewport_height_uniform = glGetUniformLocation(renderer->screen_fluid_depth_program_identifier, "u_viewport_height");
     renderer->screen_fluid_blur_texture_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_source_texture");
     renderer->screen_fluid_blur_filter_mode_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_filter_mode");
     renderer->screen_fluid_blur_depth_texture_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_depth_texture");
@@ -180,6 +181,7 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->screen_fluid_composite_texture_uniform = glGetUniformLocation(renderer->screen_fluid_composite_program_identifier, "u_fluid_texture");
     renderer->screen_fluid_composite_depth_texture_uniform = glGetUniformLocation(renderer->screen_fluid_composite_program_identifier, "u_depth_texture");
     renderer->screen_fluid_composite_texel_size_uniform = glGetUniformLocation(renderer->screen_fluid_composite_program_identifier, "u_texel_size");
+    renderer->screen_fluid_composite_projection_uniform = glGetUniformLocation(renderer->screen_fluid_composite_program_identifier, "u_projection");
 }
 
 static bool SimulationRenderer_CreateParticleGeometry (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers)
@@ -413,7 +415,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glUseProgram(renderer->screen_fluid_thickness_program_identifier);
     glUniformMatrix4fv(renderer->screen_fluid_thickness_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->screen_fluid_thickness_view_uniform, 1, GL_FALSE, view_matrix.elements);
-    glUniform1f(renderer->screen_fluid_thickness_point_size_uniform, 26.0f);
+    glUniform1f(renderer->screen_fluid_thickness_point_size_uniform, 22.0f);
     glBindVertexArray(renderer->particle_vao_identifier);
     glDrawArrays(GL_POINTS, 0, (GLsizei) particle_buffers->particle_count);
     glDisable(GL_BLEND);
@@ -422,12 +424,13 @@ static void SimulationRenderer_DrawScreenFluid (
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
-    glClearColor(1.0f, 0.0f, 0.0f, 0.0f);
+    glClearColor(10000.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(renderer->screen_fluid_depth_program_identifier);
     glUniformMatrix4fv(renderer->screen_fluid_depth_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->screen_fluid_depth_view_uniform, 1, GL_FALSE, view_matrix.elements);
-    glUniform1f(renderer->screen_fluid_depth_point_size_uniform, 26.0f);
+    glUniform1f(renderer->screen_fluid_depth_point_size_uniform, 22.0f);
+    glUniform1f(renderer->screen_fluid_depth_viewport_height_uniform, (f32) renderer->screen_fluid_texture_height);
     glDrawArrays(GL_POINTS, 0, (GLsizei) particle_buffers->particle_count);
     glDisable(GL_DEPTH_TEST);
 
@@ -488,6 +491,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glUniform1i(renderer->screen_fluid_composite_texture_uniform, 0);
     glUniform1i(renderer->screen_fluid_composite_depth_texture_uniform, 1);
     glUniform2f(renderer->screen_fluid_composite_texel_size_uniform, texel_size.x, texel_size.y);
+    glUniformMatrix4fv(renderer->screen_fluid_composite_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier);
     glActiveTexture(GL_TEXTURE1);

@@ -1,5 +1,10 @@
 #version 430 core
 
+uniform mat4 u_projection;
+
+in vec3 v_view_position;
+in float v_view_radius;
+
 layout(location = 0) out float fragment_depth_value;
 
 void main(void)
@@ -11,5 +16,13 @@ void main(void)
         discard;
     }
 
-    fragment_depth_value = gl_FragCoord.z;
+    float sphere_z_offset = sqrt(max(0.0, 1.0 - radial_distance_squared)) * v_view_radius;
+    vec3 fragment_view_position = vec3(
+        v_view_position.x + centered_point_coordinate.x * v_view_radius,
+        v_view_position.y + centered_point_coordinate.y * v_view_radius,
+        v_view_position.z + sphere_z_offset);
+    vec4 fragment_clip_position = u_projection * vec4(fragment_view_position, 1.0);
+    float normalized_device_depth = fragment_clip_position.z / fragment_clip_position.w;
+    gl_FragDepth = normalized_device_depth * 0.5 + 0.5;
+    fragment_depth_value = -fragment_view_position.z;
 }

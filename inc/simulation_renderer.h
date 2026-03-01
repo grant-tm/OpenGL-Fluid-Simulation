@@ -64,6 +64,7 @@ typedef struct SimulationRenderer
     i32 screen_fluid_depth_projection_uniform;
     i32 screen_fluid_depth_view_uniform;
     i32 screen_fluid_depth_point_size_uniform;
+    i32 screen_fluid_depth_viewport_height_uniform;
     i32 screen_fluid_blur_texture_uniform;
     i32 screen_fluid_blur_filter_mode_uniform;
     i32 screen_fluid_blur_depth_texture_uniform;
@@ -72,6 +73,7 @@ typedef struct SimulationRenderer
     i32 screen_fluid_composite_texture_uniform;
     i32 screen_fluid_composite_depth_texture_uniform;
     i32 screen_fluid_composite_texel_size_uniform;
+    i32 screen_fluid_composite_projection_uniform;
 } SimulationRenderer;
 
 typedef enum SimulationRenderMode
