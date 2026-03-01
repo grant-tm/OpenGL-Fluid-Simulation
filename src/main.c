@@ -63,6 +63,7 @@ typedef struct Application
     f32 velocity_visualization_maximum;
     f32 window_title_update_accumulator_seconds;
     f32 most_recent_frame_delta_time_seconds;
+    SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
     f32 density_visualization_minimum;
     f32 density_visualization_maximum;
@@ -88,6 +89,7 @@ static void Application_UpdateDensityVisualizationRange(Application *application
 static void Application_UpdateVelocityVisualizationRange(Application *application);
 static void Application_LogSpatialHashInspection(Application *application);
 static void Application_LogVolumeDensitySummary(Application *application);
+static const char *Application_GetRenderModeName(SimulationRenderMode render_mode);
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode);
 static void OpenGL_LogContextInfo(void);
 static void OpenGL_UpdateViewport(Application *application);
@@ -300,6 +302,27 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == 'M')
+            {
+                if (application != NULL)
+                {
+                    if (application->render_mode == SIMULATION_RENDER_MODE_PARTICLES)
+                    {
+                        application->render_mode = SIMULATION_RENDER_MODE_VOLUME;
+                    }
+                    else if (application->render_mode == SIMULATION_RENDER_MODE_VOLUME)
+                    {
+                        application->render_mode = SIMULATION_RENDER_MODE_SCREEN_FLUID;
+                    }
+                    else
+                    {
+                        application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
+                    }
+
+                    Base_LogInfo("Render mode: %s", Application_GetRenderModeName(application->render_mode));
+                }
+                return 0;
+            }
             if (wide_param == 'I')
             {
                 if (application != NULL)
@@ -313,6 +336,14 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 if (application != NULL)
                 {
                     Application_LogVolumeDensitySummary(application);
+                }
+                return 0;
+            }
+            if (wide_param == 'K')
+            {
+                if (application != NULL)
+                {
+                    SimulationRenderer_LogScreenFluidReadback(&application->renderer);
                 }
                 return 0;
             }
@@ -532,6 +563,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->velocity_visualization_maximum = 1.0f;
     application->window_title_update_accumulator_seconds = 0.0f;
     application->most_recent_frame_delta_time_seconds = 0.0f;
+    application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
     application->simulation_is_paused = false;
     application->simulation_single_step_requested = false;
     application->simulation_accumulator_seconds = 0.0f;
@@ -557,7 +589,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->volume_density_settings.resolution_x = 24;
     application->volume_density_settings.resolution_y = 24;
     application->volume_density_settings.resolution_z = 24;
-    application->volume_density_settings.density_scale = 0.015f;
+    application->volume_density_settings.density_scale = 1.0f;
     application->pipeline_settings.substeps_per_simulation_step = 3;
     application->pipeline_settings.time_scale = 1.0f;
     application->pipeline_settings.step_settings = application->step_settings;
@@ -675,6 +707,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
+    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
@@ -1031,6 +1064,18 @@ static void Application_LogVolumeDensitySummary(Application *application)
         application->volume_density_settings.resolution_z);
 }
 
+static const char *Application_GetRenderModeName(SimulationRenderMode render_mode)
+{
+    switch (render_mode)
+    {
+        case SIMULATION_RENDER_MODE_PARTICLES: return "particles";
+        case SIMULATION_RENDER_MODE_VOLUME: return "volume";
+        case SIMULATION_RENDER_MODE_SCREEN_FLUID: return "screen fluid";
+    }
+
+    return "unknown";
+}
+
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode)
 {
     switch (particle_visualization_mode)
@@ -1091,8 +1136,10 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
     SimulationRenderer_Render(
         &application->renderer,
         &application->particle_buffers,
+        &application->volume_density,
         application->camera,
         application->simulation_bounds_size,
+        application->render_mode,
         application->particle_visualization_mode,
         application->density_visualization_minimum,
         application->density_visualization_maximum,
@@ -1170,7 +1217,7 @@ static void Application_UpdateWindowTitle(Application *application)
             sizeof(title_buffer),
             "FluidSim | %s | %s | %.0f FPS | sim %.2f ms | hash %.2f | dens %.2f | pres %.2f | visc %.2f | coll %.2f | GL %s",
             application->simulation_is_paused ? "paused" : "running",
-            Application_GetVisualizationModeName(application->particle_visualization_mode),
+            Application_GetRenderModeName(application->render_mode),
             frame_rate,
             (f32) application->pipeline.last_debug_timings.total_milliseconds,
             (f32) application->pipeline.last_debug_timings.spatial_hash_milliseconds,

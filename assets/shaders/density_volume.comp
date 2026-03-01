@@ -1,0 +1,51 @@
+#version 430 core
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(std430, binding = 1) readonly buffer PredictedPositionBuffer
+{
+    vec4 predicted_positions[];
+};
+
+layout(r32f, binding = 0) uniform writeonly image3D u_density_volume;
+
+uniform int u_particle_count;
+uniform vec3 u_bounds_size;
+uniform ivec3 u_resolution;
+uniform float u_smoothing_radius;
+uniform float u_density_scale;
+
+float DensityKernel (float distance_squared, float smoothing_radius)
+{
+    float smoothing_radius_squared = smoothing_radius * smoothing_radius;
+    if (distance_squared >= smoothing_radius_squared)
+    {
+        return 0.0;
+    }
+
+    float difference = smoothing_radius_squared - distance_squared;
+    return difference * difference * difference;
+}
+
+void main(void)
+{
+    ivec3 voxel_index = ivec3(gl_GlobalInvocationID.xyz);
+    if (voxel_index.x >= u_resolution.x || voxel_index.y >= u_resolution.y || voxel_index.z >= u_resolution.z)
+    {
+        return;
+    }
+
+    vec3 voxel_fraction = (vec3(voxel_index) + vec3(0.5)) / vec3(u_resolution);
+    vec3 world_position = voxel_fraction * u_bounds_size - u_bounds_size * 0.5;
+    float density_value = 0.0;
+
+    for (int particle_index = 0; particle_index < u_particle_count; particle_index++)
+    {
+        vec3 particle_position = predicted_positions[particle_index].xyz;
+        vec3 offset_to_particle = particle_position - world_position;
+        float distance_squared = dot(offset_to_particle, offset_to_particle);
+        density_value += DensityKernel(distance_squared, u_smoothing_radius);
+    }
+
+    imageStore(u_density_volume, voxel_index, vec4(density_value * u_density_scale, 0.0, 0.0, 1.0));
+}
