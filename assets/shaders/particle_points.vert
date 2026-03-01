@@ -48,6 +48,16 @@ void main(void)
     }
     else
     {
-        v_color = vec4(1.0, 0.45, 0.05, 1.0);
+        float density_range = max(u_density_maximum - u_density_minimum, 0.0001);
+        float density_value = clamp((a_density.x - u_density_minimum) / density_range, 0.0, 1.0);
+        float speed_range = max(u_speed_maximum - u_speed_minimum, 0.0001);
+        float speed_value = clamp((length(a_velocity.xyz) - u_speed_minimum) / speed_range, 0.0, 1.0);
+
+        vec3 cool_color = vec3(0.20, 0.55, 0.95);
+        vec3 warm_color = vec3(0.96, 0.76, 0.30);
+        vec3 accent_color = vec3(0.98, 0.36, 0.12);
+        vec3 particle_color = mix(cool_color, warm_color, density_value);
+        particle_color = mix(particle_color, accent_color, speed_value * 0.35);
+        v_color = vec4(particle_color, 0.94);
     }
 }

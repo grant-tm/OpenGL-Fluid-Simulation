@@ -239,7 +239,7 @@ void SimulationRenderer_Render (
     glUniformMatrix4fv(renderer->particle_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->particle_view_uniform, 1, GL_FALSE, view_matrix.elements);
     glUniform4f(renderer->particle_color_uniform, 1.0f, 0.45f, 0.05f, 1.0f);
-    glUniform1f(renderer->particle_size_uniform, 14.0f);
+    glUniform1f(renderer->particle_size_uniform, 16.0f);
     glUniform1i(renderer->particle_visualization_mode_uniform, (i32) particle_visualization_mode);
     glUniform1f(renderer->particle_density_minimum_uniform, density_minimum);
     glUniform1f(renderer->particle_density_maximum_uniform, density_maximum);
