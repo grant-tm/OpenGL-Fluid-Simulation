@@ -538,7 +538,7 @@ static bool Application_InitializeSimulationView(Application *application)
     SimulationSpawnBox spawn_box = {0};
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
-    spawn_box.particle_spacing = 0.35f;
+    spawn_box.particle_spacing = 0.25f;
     spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
 
     if (!Simulation_GenerateSpawnDataBox(&application->initial_spawn_data, spawn_box))
@@ -1096,11 +1096,27 @@ static void OpenGL_LogContextInfo(void)
     const char *vendor_name = (const char *) glGetString(GL_VENDOR);
     const char *renderer_name = (const char *) glGetString(GL_RENDERER);
     const char *version_name = (const char *) glGetString(GL_VERSION);
+    GLint context_profile_mask = 0;
+    const char *context_profile_name = "legacy/unknown";
+
+    if (GLVersion.major > 3 || (GLVersion.major == 3 && GLVersion.minor >= 2))
+    {
+        glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &context_profile_mask);
+        if ((context_profile_mask & GL_CONTEXT_CORE_PROFILE_BIT) != 0)
+        {
+            context_profile_name = "core";
+        }
+        else if ((context_profile_mask & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0)
+        {
+            context_profile_name = "compatibility";
+        }
+    }
 
     Base_LogInfo("OpenGL vendor:   %s", vendor_name != NULL ? vendor_name : "Unavailable");
     Base_LogInfo("OpenGL renderer: %s", renderer_name != NULL ? renderer_name : "Unavailable");
     Base_LogInfo("OpenGL version:  %s", version_name != NULL ? version_name : "Unavailable");
     Base_LogInfo("GLAD parsed:     %d.%d", GLVersion.major, GLVersion.minor);
+    Base_LogInfo("OpenGL profile:  %s (mask 0x%X)", context_profile_name, (u32) context_profile_mask);
     Base_LogInfo("Press Escape to close the window.");
 }
 

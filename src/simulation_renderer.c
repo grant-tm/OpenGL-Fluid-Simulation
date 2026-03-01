@@ -232,8 +232,8 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (SimulationRenderer *r
 
 static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *renderer, i32 viewport_width, i32 viewport_height)
 {
-    i32 texture_width = viewport_width / 2; if (texture_width < 64) texture_width = 64;
-    i32 texture_height = viewport_height / 2; if (texture_height < 64) texture_height = 64;
+    i32 texture_width = viewport_width; if (texture_width < 64) texture_width = 64;
+    i32 texture_height = viewport_height; if (texture_height < 64) texture_height = 64;
     if (renderer->screen_fluid_texture_width == texture_width &&
         renderer->screen_fluid_texture_height == texture_height &&
         renderer->screen_fluid_thickness_texture_identifier != 0 &&
@@ -267,6 +267,7 @@ bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const Simulati
         return false;
     }
     glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_POINT_SPRITE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     return true;
@@ -375,7 +376,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glUseProgram(renderer->screen_fluid_thickness_program_identifier);
     glUniformMatrix4fv(renderer->screen_fluid_thickness_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->screen_fluid_thickness_view_uniform, 1, GL_FALSE, view_matrix.elements);
-    glUniform1f(renderer->screen_fluid_thickness_point_size_uniform, 34.0f);
+    glUniform1f(renderer->screen_fluid_thickness_point_size_uniform, 26.0f);
     glBindVertexArray(renderer->particle_vao_identifier);
     glDrawArrays(GL_POINTS, 0, (GLsizei) particle_buffers->particle_count);
     glDisable(GL_BLEND);
@@ -391,6 +392,20 @@ static void SimulationRenderer_DrawScreenFluid (
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier);
     glBindVertexArray(renderer->fullscreen_vao_identifier);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUniform2f(renderer->screen_fluid_blur_direction_uniform, 0.0f, 1.0f);
+    glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_blur_texture_identifier);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUniform2f(renderer->screen_fluid_blur_direction_uniform, 1.0f, 0.0f);
+    glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
