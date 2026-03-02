@@ -7,6 +7,7 @@
 #include "simulation_spatial_hash.h"
 #include "simulation_step.h"
 #include "simulation_viscosity.h"
+#include "simulation_whitewater.h"
 
 typedef struct SimulationPipeline
 {
@@ -53,8 +54,10 @@ bool SimulationPipeline_RunSimulationStep (
     SimulationPressure *pressure,
     SimulationViscosity *viscosity,
     SimulationCollision *collision,
+    SimulationWhitewater *whitewater,
     SimulationParticleBuffers *particle_buffers,
     SimulationPipelineSettings settings,
+    const SimulationWhitewaterSettings *whitewater_settings,
     f32 simulation_delta_time_seconds);
 bool SimulationPipeline_RunValidation (void);
 

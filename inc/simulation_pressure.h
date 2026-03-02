@@ -2,6 +2,7 @@
 #define SIMULATION_PRESSURE_H
 
 #include "simulation_data.h"
+#include "simulation_whitewater.h"
 
 typedef struct SimulationPressureSettings
 {
@@ -21,6 +22,17 @@ typedef struct SimulationPressure
     i32 target_density_uniform;
     i32 pressure_multiplier_uniform;
     i32 near_pressure_multiplier_uniform;
+    i32 enable_whitewater_spawn_uniform;
+    i32 maximum_whitewater_count_uniform;
+    i32 simulation_time_uniform;
+    i32 spawn_rate_uniform;
+    i32 spawn_rate_fade_in_time_uniform;
+    i32 spawn_rate_fade_start_time_uniform;
+    i32 trapped_air_velocity_minimum_uniform;
+    i32 trapped_air_velocity_maximum_uniform;
+    i32 kinetic_energy_minimum_uniform;
+    i32 kinetic_energy_maximum_uniform;
+    i32 bubble_scale_uniform;
 } SimulationPressure;
 
 bool SimulationPressure_Initialize (SimulationPressure *pressure);
@@ -29,7 +41,9 @@ bool SimulationPressure_Run (
     SimulationPressure *pressure,
     SimulationParticleBuffers *particle_buffers,
     SimulationPressureSettings settings,
-    f32 delta_time_seconds);
+    f32 delta_time_seconds,
+    SimulationWhitewater *whitewater,
+    const SimulationWhitewaterSettings *whitewater_settings);
 bool SimulationPressure_RunValidation (void);
 
 #endif // SIMULATION_PRESSURE_H

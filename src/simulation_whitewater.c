@@ -250,6 +250,38 @@ bool SimulationWhitewater_Run (
     OpenGL_DispatchCompute(particle_workgroup_count_x, 1, 1);
     OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 
+    return SimulationWhitewater_UpdateOnly(whitewater, particle_buffers, settings);
+}
+
+bool SimulationWhitewater_UpdateOnly (
+    SimulationWhitewater *whitewater,
+    const SimulationParticleBuffers *particle_buffers,
+    SimulationWhitewaterSettings settings)
+{
+    u32 whitewater_workgroup_count_x;
+
+    Base_Assert(whitewater != NULL);
+    Base_Assert(particle_buffers != NULL);
+
+    if (whitewater->update_program_identifier == 0 ||
+        whitewater->copyback_program_identifier == 0)
+    {
+        return false;
+    }
+
+    if (particle_buffers->particle_count == 0 || whitewater->maximum_particle_count == 0)
+    {
+        return true;
+    }
+
+    if (settings.smoothing_radius <= 0.0f || settings.delta_time_seconds < 0.0f)
+    {
+        Base_LogError("Whitewater settings are invalid.");
+        return false;
+    }
+
+    whitewater_workgroup_count_x = (whitewater->maximum_particle_count + 63u) / 64u;
+
     glUseProgram(whitewater->update_program_identifier);
     glUniform1i(whitewater->update_particle_count_uniform, (i32) particle_buffers->particle_count);
     glUniform1i(whitewater->update_table_size_uniform, (i32) particle_buffers->particle_count);

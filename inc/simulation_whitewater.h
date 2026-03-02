@@ -7,6 +7,8 @@ typedef struct SimulationWhitewaterSettings
 {
     u32 maximum_particle_count;
     f32 spawn_rate;
+    f32 spawn_rate_fade_in_time;
+    f32 spawn_rate_fade_start_time;
     f32 trapped_air_velocity_minimum;
     f32 trapped_air_velocity_maximum;
     f32 kinetic_energy_minimum;
@@ -73,6 +75,10 @@ bool SimulationWhitewater_Initialize (SimulationWhitewater *whitewater, u32 maxi
 void SimulationWhitewater_Shutdown (SimulationWhitewater *whitewater);
 bool SimulationWhitewater_Reset (SimulationWhitewater *whitewater);
 bool SimulationWhitewater_Run (
+    SimulationWhitewater *whitewater,
+    const SimulationParticleBuffers *particle_buffers,
+    SimulationWhitewaterSettings settings);
+bool SimulationWhitewater_UpdateOnly (
     SimulationWhitewater *whitewater,
     const SimulationParticleBuffers *particle_buffers,
     SimulationWhitewaterSettings settings);

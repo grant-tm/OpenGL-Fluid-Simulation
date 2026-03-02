@@ -59,12 +59,14 @@ typedef struct SimulationRenderer
     u32 screen_fluid_debug_program_identifier;
     u32 screen_fluid_shadow_blur_program_identifier;
     u32 screen_fluid_composite_program_identifier;
+    u32 screen_fluid_airborne_foam_program_identifier;
     u32 particle_vao_identifier;
     u32 screen_fluid_quad_vao_identifier;
     u32 screen_fluid_quad_vbo_identifier;
     u32 bounds_vao_identifier;
     u32 bounds_vbo_identifier;
     u32 whitewater_vao_identifier;
+    u32 whitewater_quad_vbo_identifier;
     u32 fullscreen_vao_identifier;
     u32 screen_fluid_framebuffer_identifier;
     u32 screen_fluid_blur_framebuffer_identifier;
@@ -101,6 +103,7 @@ typedef struct SimulationRenderer
     i32 line_model_uniform;
     i32 whitewater_projection_uniform;
     i32 whitewater_view_uniform;
+    i32 whitewater_scale_uniform;
     i32 screen_fluid_thickness_projection_uniform;
     i32 screen_fluid_thickness_view_uniform;
     i32 screen_fluid_thickness_point_size_uniform;
@@ -142,6 +145,8 @@ typedef struct SimulationRenderer
     i32 screen_fluid_composite_foam_texture_uniform;
     i32 screen_fluid_composite_shadow_texture_uniform;
     i32 screen_fluid_composite_shadow_view_projection_uniform;
+    i32 screen_fluid_airborne_foam_fluid_texture_uniform;
+    i32 screen_fluid_airborne_foam_foam_texture_uniform;
 } SimulationRenderer;
 
 typedef enum SimulationRenderMode

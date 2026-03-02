@@ -652,19 +652,21 @@ static bool Application_InitializeSimulationView(Application *application)
     application->volume_density_settings.resolution_z = 24;
     application->volume_density_settings.density_scale = 1.0f;
     application->whitewater_settings.maximum_particle_count = 1000u;
-    application->whitewater_settings.spawn_rate = 70.0f;
-    application->whitewater_settings.trapped_air_velocity_minimum = 5.0f;
+    application->whitewater_settings.spawn_rate = 120.0f;
+    application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
+    application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
+    application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
     application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
     application->whitewater_settings.kinetic_energy_minimum = 15.0f;
-    application->whitewater_settings.kinetic_energy_maximum = 80.0f;
+    application->whitewater_settings.kinetic_energy_maximum = 30.0f;
     application->whitewater_settings.target_density = application->pressure_settings.target_density;
     application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
     application->whitewater_settings.gravity = application->step_settings.gravity;
     application->whitewater_settings.delta_time_seconds = application->fixed_simulation_delta_time_seconds;
-    application->whitewater_settings.bubble_buoyancy = 1.5f;
+    application->whitewater_settings.bubble_buoyancy = 1.4f;
     application->whitewater_settings.spray_classify_maximum_neighbors = 5;
     application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
-    application->whitewater_settings.bubble_scale = 0.5f;
+    application->whitewater_settings.bubble_scale = 0.3f;
     application->whitewater_settings.bubble_scale_change_speed = 7.0f;
     application->whitewater_settings.collision_damping = 0.10f;
     application->whitewater_settings.bounds_size = application->simulation_bounds_size;
@@ -858,8 +860,10 @@ static bool Application_RunSimulationFixedStep(Application *application, f32 sim
         &application->pressure,
         &application->viscosity,
         &application->collision,
+        &application->whitewater,
         &application->particle_buffers,
         application->pipeline_settings,
+        &application->whitewater_settings,
         simulation_delta_time_seconds);
 
     if (!run_success)
@@ -881,12 +885,6 @@ static bool Application_RunSimulationFixedStep(Application *application, f32 sim
     application->whitewater_settings.gravity = application->pipeline_settings.step_settings.gravity;
     application->whitewater_settings.target_density = application->pipeline_settings.pressure_settings.target_density;
     application->whitewater_settings.bounds_size = application->pipeline_settings.collision_settings.bounds_size;
-
-    if (!SimulationWhitewater_Run(&application->whitewater, &application->particle_buffers, application->whitewater_settings))
-    {
-        Base_LogError("Whitewater update failed.");
-        return false;
-    }
 
     return true;
 }
@@ -924,6 +922,7 @@ static void Application_ResetSimulation(Application *application)
 
 static void Application_UpdateSimulation(Application *application, f32 frame_delta_time_seconds)
 {
+    bool ran_simulation_step = false;
     if (application->reset_requested)
     {
         application->reset_requested = false;
@@ -946,21 +945,35 @@ static void Application_UpdateSimulation(Application *application, f32 frame_del
                 application->is_running = false;
                 return;
             }
+            ran_simulation_step = true;
         }
-        return;
+    }
+    else
+    {
+        application->simulation_accumulator_seconds += clamped_frame_delta_time;
+
+        while (application->simulation_accumulator_seconds >= application->fixed_simulation_delta_time_seconds)
+        {
+            if (!Application_RunSimulationFixedStep(application, application->fixed_simulation_delta_time_seconds))
+            {
+                application->is_running = false;
+                return;
+            }
+
+            ran_simulation_step = true;
+            application->simulation_accumulator_seconds -= application->fixed_simulation_delta_time_seconds;
+        }
     }
 
-    application->simulation_accumulator_seconds += clamped_frame_delta_time;
-
-    while (application->simulation_accumulator_seconds >= application->fixed_simulation_delta_time_seconds)
+    if (ran_simulation_step)
     {
-        if (!Application_RunSimulationFixedStep(application, application->fixed_simulation_delta_time_seconds))
+        application->whitewater_settings.delta_time_seconds = clamped_frame_delta_time * application->pipeline_settings.time_scale;
+        if (!SimulationWhitewater_UpdateOnly(&application->whitewater, &application->particle_buffers, application->whitewater_settings))
         {
+            Base_LogError("Whitewater update failed.");
             application->is_running = false;
             return;
         }
-
-        application->simulation_accumulator_seconds -= application->fixed_simulation_delta_time_seconds;
     }
 }
 

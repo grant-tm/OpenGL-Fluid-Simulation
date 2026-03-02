@@ -32,6 +32,17 @@ bool SimulationPressure_Initialize (SimulationPressure *pressure)
     pressure->target_density_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_target_density");
     pressure->pressure_multiplier_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_pressure_multiplier");
     pressure->near_pressure_multiplier_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_near_pressure_multiplier");
+    pressure->enable_whitewater_spawn_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_enable_whitewater_spawn");
+    pressure->maximum_whitewater_count_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_maximum_whitewater_count");
+    pressure->simulation_time_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_simulation_time");
+    pressure->spawn_rate_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_spawn_rate");
+    pressure->spawn_rate_fade_in_time_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_spawn_rate_fade_in_time");
+    pressure->spawn_rate_fade_start_time_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_spawn_rate_fade_start_time");
+    pressure->trapped_air_velocity_minimum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_trapped_air_velocity_minimum");
+    pressure->trapped_air_velocity_maximum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_trapped_air_velocity_maximum");
+    pressure->kinetic_energy_minimum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_kinetic_energy_minimum");
+    pressure->kinetic_energy_maximum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_kinetic_energy_maximum");
+    pressure->bubble_scale_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_bubble_scale");
     return true;
 }
 
@@ -51,7 +62,9 @@ bool SimulationPressure_Run (
     SimulationPressure *pressure,
     SimulationParticleBuffers *particle_buffers,
     SimulationPressureSettings settings,
-    f32 delta_time_seconds)
+    f32 delta_time_seconds,
+    SimulationWhitewater *whitewater,
+    const SimulationWhitewaterSettings *whitewater_settings)
 {
     Base_Assert(pressure != NULL);
     Base_Assert(particle_buffers != NULL);
@@ -75,6 +88,23 @@ bool SimulationPressure_Run (
     glUniform1f(pressure->target_density_uniform, settings.target_density);
     glUniform1f(pressure->pressure_multiplier_uniform, settings.pressure_multiplier);
     glUniform1f(pressure->near_pressure_multiplier_uniform, settings.near_pressure_multiplier);
+    glUniform1i(
+        pressure->enable_whitewater_spawn_uniform,
+        (whitewater != NULL && whitewater_settings != NULL && whitewater->maximum_particle_count > 0) ? 1 : 0);
+
+    if (whitewater != NULL && whitewater_settings != NULL && whitewater->maximum_particle_count > 0)
+    {
+        glUniform1i(pressure->maximum_whitewater_count_uniform, (i32) whitewater->maximum_particle_count);
+        glUniform1f(pressure->simulation_time_uniform, whitewater_settings->simulation_time_seconds);
+        glUniform1f(pressure->spawn_rate_uniform, whitewater_settings->spawn_rate);
+        glUniform1f(pressure->spawn_rate_fade_in_time_uniform, whitewater_settings->spawn_rate_fade_in_time);
+        glUniform1f(pressure->spawn_rate_fade_start_time_uniform, whitewater_settings->spawn_rate_fade_start_time);
+        glUniform1f(pressure->trapped_air_velocity_minimum_uniform, whitewater_settings->trapped_air_velocity_minimum);
+        glUniform1f(pressure->trapped_air_velocity_maximum_uniform, whitewater_settings->trapped_air_velocity_maximum);
+        glUniform1f(pressure->kinetic_energy_minimum_uniform, whitewater_settings->kinetic_energy_minimum);
+        glUniform1f(pressure->kinetic_energy_maximum_uniform, whitewater_settings->kinetic_energy_maximum);
+        glUniform1f(pressure->bubble_scale_uniform, whitewater_settings->bubble_scale);
+    }
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->predicted_position_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, particle_buffers->velocity_buffer.identifier);
@@ -82,6 +112,11 @@ bool SimulationPressure_Run (
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, particle_buffers->spatial_key_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, particle_buffers->spatial_hash_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, particle_buffers->spatial_offset_buffer.identifier);
+    if (whitewater != NULL && whitewater_settings != NULL && whitewater->maximum_particle_count > 0)
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, whitewater->particle_buffer.identifier);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, whitewater->counter_buffer.identifier);
+    }
 
     OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
     OpenGL_MemoryBarrier(
@@ -95,6 +130,8 @@ bool SimulationPressure_Run (
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, 0);
     glUseProgram(0);
     return true;
 }
@@ -155,7 +192,7 @@ bool SimulationPressure_RunValidation (void)
         SimulationSpatialHash_Run(&spatial_hash, &particle_buffers, spatial_hash_settings) &&
         SimulationReorder_Run(&particle_buffers) &&
         SimulationDensity_Run(&density, &particle_buffers, density_settings) &&
-        SimulationPressure_Run(&pressure, &particle_buffers, pressure_settings, 1.0f / 60.0f);
+        SimulationPressure_Run(&pressure, &particle_buffers, pressure_settings, 1.0f / 60.0f, NULL, NULL);
 
     Vec4 velocity_values[32];
     bool read_success = success &&

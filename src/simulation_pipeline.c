@@ -105,8 +105,10 @@ bool SimulationPipeline_RunSimulationStep (
     SimulationPressure *pressure,
     SimulationViscosity *viscosity,
     SimulationCollision *collision,
+    SimulationWhitewater *whitewater,
     SimulationParticleBuffers *particle_buffers,
     SimulationPipelineSettings settings,
+    const SimulationWhitewaterSettings *whitewater_settings,
     f32 simulation_delta_time_seconds)
 {
     Base_Assert(pipeline != NULL);
@@ -182,7 +184,13 @@ bool SimulationPipeline_RunSimulationStep (
             SimulationPipeline_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
         QueryPerformanceCounter(&pass_start_counter);
-        if (!SimulationPressure_Run(pressure, particle_buffers, settings.pressure_settings, substep_delta_time))
+        if (!SimulationPressure_Run(
+                pressure,
+                particle_buffers,
+                settings.pressure_settings,
+                substep_delta_time,
+                whitewater,
+                whitewater_settings))
         {
             return false;
         }
@@ -312,8 +320,10 @@ bool SimulationPipeline_RunValidation (void)
             &pressure,
             &viscosity,
             &collision,
+            NULL,
             &particle_buffers,
             settings,
+            NULL,
             1.0f / 60.0f);
     }
 

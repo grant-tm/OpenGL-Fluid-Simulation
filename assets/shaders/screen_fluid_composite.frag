@@ -87,6 +87,7 @@ void main(void)
     vec4 foam_sample = texture(u_foam_texture, v_texture_coordinate);
     float foam = foam_sample.r;
     float foam_depth = foam_sample.b;
+    float foam_surface_visibility = 0.0;
 
     if (smooth_depth > 1000.0)
     {
@@ -97,6 +98,15 @@ void main(void)
     {
         discard;
     }
+
+    foam_surface_visibility =
+        foam *
+        (
+            1.0 -
+            smoothstep(
+                hard_depth + 0.010,
+                hard_depth + 0.120,
+                foam_depth));
 
     vec3 surface_normal = texture(u_normal_texture, v_texture_coordinate).xyz * 2.0 - vec3(1.0);
     if (dot(surface_normal, surface_normal) < 0.25)
@@ -143,7 +153,7 @@ void main(void)
     vec3 transmitted_scene_color = scene_color * transmission_factor;
     vec3 refracted_color = mix(in_scatter_color, transmitted_scene_color, clamp(transmission_factor, vec3(0.0), vec3(1.0)));
     refracted_color = mix(refracted_color, refracted_environment_color, 0.24);
-    refracted_color = refracted_color * (1.0 - foam) + vec3(foam);
+    refracted_color = refracted_color * (1.0 - foam_surface_visibility) + vec3(foam_surface_visibility);
 
     vec4 shadow_clip_position = u_shadow_view_projection * vec4(world_position, 1.0);
     shadow_clip_position /= shadow_clip_position.w;
@@ -163,10 +173,7 @@ void main(void)
     float grazing_light = pow(1.0 - view_normal_alignment, 2.5);
 
     reflected_color = max(reflected_color, vec3(0.18, 0.22, 0.28));
-    if (foam_depth < smooth_depth)
-    {
-        reflected_color = reflected_color * (1.0 - foam) + vec3(foam);
-    }
+    reflected_color = reflected_color * (1.0 - foam_surface_visibility) + vec3(foam_surface_visibility);
     vec3 final_color = mix(refracted_color, reflected_color, fresnel_factor);
     final_color += vec3(0.85, 0.93, 1.0) * specular_light * 0.35;
     final_color += vec3(0.06, 0.10, 0.14) * diffuse_light * grazing_light;

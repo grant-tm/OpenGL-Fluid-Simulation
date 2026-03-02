@@ -32,6 +32,22 @@ layout(std430, binding = 7) buffer SpatialOffsets
     uint spatial_offsets[];
 };
 
+struct WhitewaterParticle
+{
+    vec4 position_and_scale;
+    vec4 velocity_and_lifetime;
+};
+
+layout(std430, binding = 8) buffer WhitewaterParticles
+{
+    WhitewaterParticle whitewater_particles[];
+};
+
+layout(std430, binding = 9) buffer WhitewaterCounters
+{
+    uint whitewater_counters[];
+};
+
 uniform float u_smoothing_radius;
 uniform int u_particle_count;
 uniform int u_table_size;
@@ -39,6 +55,17 @@ uniform float u_delta_time;
 uniform float u_target_density;
 uniform float u_pressure_multiplier;
 uniform float u_near_pressure_multiplier;
+uniform int u_enable_whitewater_spawn;
+uniform int u_maximum_whitewater_count;
+uniform float u_simulation_time;
+uniform float u_spawn_rate;
+uniform float u_spawn_rate_fade_in_time;
+uniform float u_spawn_rate_fade_start_time;
+uniform float u_trapped_air_velocity_minimum;
+uniform float u_trapped_air_velocity_maximum;
+uniform float u_kinetic_energy_minimum;
+uniform float u_kinetic_energy_maximum;
+uniform float u_bubble_scale;
 
 const uint HASH_K1 = 15823u;
 const uint HASH_K2 = 9737333u;
@@ -88,6 +115,42 @@ float NearDensityDerivative(float distance_to_neighbor, float smoothing_radius)
     return -remaining_distance * remaining_distance * scale;
 }
 
+float Remap01(float value, float minimum_value, float maximum_value)
+{
+    float denominator = maximum_value - minimum_value;
+    if (abs(denominator) < 0.000001) return 0.0;
+    return clamp((value - minimum_value) / denominator, 0.0, 1.0);
+}
+
+uint HashRandom(uint value)
+{
+    value ^= 2747636419u;
+    value *= 2654435769u;
+    value ^= value >> 16;
+    value *= 2654435769u;
+    value ^= value >> 16;
+    value *= 2654435769u;
+    return value;
+}
+
+float RandomValue(inout uint random_state)
+{
+    random_state = HashRandom(random_state + 1u);
+    return float(random_state) / 4294967295.0;
+}
+
+vec3 CalculateOrthonormal(vec3 direction)
+{
+    if (length(direction) < 0.0001)
+    {
+        return vec3(1.0, 0.0, 0.0);
+    }
+
+    vec3 normalized_direction = normalize(direction);
+    vec3 axis = abs(normalized_direction.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    return normalize(cross(axis, normalized_direction));
+}
+
 void main(void)
 {
     uint particle_index = gl_GlobalInvocationID.x;
@@ -105,6 +168,8 @@ void main(void)
     ivec3 origin_cell = ivec3(floor(particle_position / u_smoothing_radius));
     float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
     vec3 pressure_force = vec3(0.0);
+    float weighted_velocity_difference = 0.0;
+    vec3 current_velocity = velocities[particle_index].xyz;
 
     for (int offset_index = 0; offset_index < 27; offset_index++)
     {
@@ -158,6 +223,19 @@ void main(void)
                 pressure_force +=
                     direction_to_neighbor * NearDensityDerivative(distance_to_neighbor, u_smoothing_radius) *
                     shared_near_pressure / max(neighbor_near_density, 0.0001);
+
+                if (u_enable_whitewater_spawn != 0)
+                {
+                    vec3 neighbor_velocity = velocities[sorted_index].xyz;
+                    vec3 relative_velocity = current_velocity - neighbor_velocity;
+                    float relative_velocity_magnitude = length(relative_velocity);
+                    vec3 relative_velocity_direction = relative_velocity_magnitude > 0.000001
+                        ? relative_velocity / relative_velocity_magnitude
+                        : vec3(0.0);
+                    float converge_weight = 1.0 - dot(relative_velocity_direction, -direction_to_neighbor);
+                    float influence_weight = 1.0 - min(1.0, distance_to_neighbor / u_smoothing_radius);
+                    weighted_velocity_difference += relative_velocity_magnitude * converge_weight * influence_weight;
+                }
             }
 
             sorted_index += 1u;
@@ -165,5 +243,69 @@ void main(void)
     }
 
     vec3 acceleration = pressure_force / particle_density;
-    velocities[particle_index].xyz += acceleration * u_delta_time;
+    vec3 velocity_new = current_velocity + acceleration * u_delta_time;
+    velocities[particle_index].xyz = velocity_new;
+
+    if (u_enable_whitewater_spawn != 0)
+    {
+        float fade_in_t = Remap01(
+            u_simulation_time,
+            u_spawn_rate_fade_start_time,
+            u_spawn_rate_fade_start_time + u_spawn_rate_fade_in_time);
+        float effective_spawn_rate = u_spawn_rate * fade_in_t * fade_in_t;
+        float trapped_air_factor =
+            effective_spawn_rate * Remap01(
+                weighted_velocity_difference,
+                u_trapped_air_velocity_minimum,
+                u_trapped_air_velocity_maximum);
+        float kinetic_energy_factor =
+            Remap01(
+                dot(current_velocity, current_velocity),
+                u_kinetic_energy_minimum,
+                u_kinetic_energy_maximum);
+        float spawn_factor = trapped_air_factor * kinetic_energy_factor * u_delta_time;
+
+        int spawn_count = int(floor(spawn_factor));
+        float fractional_spawn_remainder = spawn_factor - float(spawn_count);
+        uint random_state = HashRandom(particle_index + uint(u_simulation_time * 1000.0));
+        if (RandomValue(random_state) < fractional_spawn_remainder)
+        {
+            spawn_count += 1;
+        }
+
+        if (spawn_count > 0)
+        {
+            uint base_particle_index = atomicAdd(whitewater_counters[0], uint(spawn_count));
+            vec3 cylinder_base = particle_position;
+            vec3 cylinder_top = particle_position + velocity_new * u_delta_time;
+            vec3 cylinder_axis_a = CalculateOrthonormal(velocity_new);
+            vec3 cylinder_axis_b = normalize(cross(cylinder_axis_a, velocity_new));
+
+            for (int spawn_index = 0; spawn_index < spawn_count; spawn_index++)
+            {
+                uint whitewater_index = base_particle_index + uint(spawn_index);
+                if (whitewater_index >= uint(u_maximum_whitewater_count))
+                {
+                    whitewater_counters[0] = uint(u_maximum_whitewater_count);
+                    break;
+                }
+
+                float random_angle = RandomValue(random_state) * 6.2831853;
+                vec3 offset_direction = cos(random_angle) * cylinder_axis_a + sin(random_angle) * cylinder_axis_b;
+                vec3 base_offset = sqrt(RandomValue(random_state)) * u_smoothing_radius * offset_direction;
+                vec3 spawn_position =
+                    cylinder_base +
+                    base_offset +
+                    (cylinder_top - cylinder_base) * RandomValue(random_state);
+                float lifetime = mix(5.0, 15.0, RandomValue(random_state));
+
+                whitewater_particles[whitewater_index].position_and_scale = vec4(
+                    spawn_position,
+                    (u_bubble_scale + 1.0) * 0.5);
+                whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(
+                    velocity_new + base_offset,
+                    lifetime);
+            }
+        }
+    }
 }
