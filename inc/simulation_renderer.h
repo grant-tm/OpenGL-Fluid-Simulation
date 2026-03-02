@@ -61,9 +61,11 @@ typedef struct SimulationRenderer
     u32 particle_program_identifier;
     u32 line_program_identifier;
     u32 whitewater_program_identifier;
+    u32 whitewater_copy_count_program_identifier;
     u32 screen_fluid_thickness_program_identifier;
     u32 screen_fluid_depth_program_identifier;
     u32 screen_fluid_prepare_program_identifier;
+    u32 screen_fluid_depth_copy_program_identifier;
     u32 screen_fluid_blur_program_identifier;
     u32 screen_fluid_normal_program_identifier;
     u32 screen_fluid_debug_program_identifier;
@@ -77,10 +79,13 @@ typedef struct SimulationRenderer
     u32 bounds_vbo_identifier;
     u32 whitewater_vao_identifier;
     u32 whitewater_quad_vbo_identifier;
+    u32 whitewater_draw_arguments_buffer_identifier;
     u32 fullscreen_vao_identifier;
     u32 screen_fluid_framebuffer_identifier;
     u32 screen_fluid_blur_framebuffer_identifier;
     u32 screen_fluid_depth_renderbuffer_identifier;
+    u32 screen_fluid_foam_depth_renderbuffer_identifier;
+    u32 screen_fluid_thickness_depth_renderbuffer_identifier;
     u32 screen_fluid_thickness_texture_identifier;
     u32 screen_fluid_depth_texture_identifier;
     u32 screen_fluid_depth_blur_texture_identifier;
@@ -107,6 +112,8 @@ typedef struct SimulationRenderer
     i32 particle_density_maximum_uniform;
     i32 particle_speed_minimum_uniform;
     i32 particle_speed_maximum_uniform;
+    i32 particle_spawn_factor_minimum_uniform;
+    i32 particle_spawn_factor_maximum_uniform;
     i32 line_projection_uniform;
     i32 line_view_uniform;
     i32 line_color_uniform;
@@ -114,6 +121,8 @@ typedef struct SimulationRenderer
     i32 whitewater_projection_uniform;
     i32 whitewater_view_uniform;
     i32 whitewater_scale_uniform;
+    i32 whitewater_debug_class_filter_uniform;
+    i32 whitewater_debug_output_mode_uniform;
     i32 screen_fluid_thickness_projection_uniform;
     i32 screen_fluid_thickness_view_uniform;
     i32 screen_fluid_thickness_point_size_uniform;
@@ -123,6 +132,7 @@ typedef struct SimulationRenderer
     i32 screen_fluid_depth_viewport_height_uniform;
     i32 screen_fluid_prepare_depth_texture_uniform;
     i32 screen_fluid_prepare_thickness_texture_uniform;
+    i32 screen_fluid_depth_copy_texture_uniform;
     i32 screen_fluid_blur_texture_uniform;
     i32 screen_fluid_blur_filter_mode_uniform;
     i32 screen_fluid_blur_depth_texture_uniform;
@@ -157,6 +167,7 @@ typedef struct SimulationRenderer
     i32 screen_fluid_composite_shadow_view_projection_uniform;
     i32 screen_fluid_airborne_foam_fluid_texture_uniform;
     i32 screen_fluid_airborne_foam_foam_texture_uniform;
+    i32 screen_fluid_airborne_foam_scene_texture_uniform;
 } SimulationRenderer;
 
 typedef enum SimulationRenderMode
@@ -171,6 +182,10 @@ typedef enum SimulationParticleVisualizationMode
     SIMULATION_PARTICLE_VISUALIZATION_DENSITY = 1,
     SIMULATION_PARTICLE_VISUALIZATION_VELOCITY = 2,
     SIMULATION_PARTICLE_VISUALIZATION_SPATIAL_KEY = 3,
+    SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE = 4,
+    SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR = 5,
+    SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR = 6,
+    SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR = 7,
 } SimulationParticleVisualizationMode;
 
 typedef enum SimulationScreenFluidVisualizationMode
@@ -181,6 +196,12 @@ typedef enum SimulationScreenFluidVisualizationMode
     SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH = 3,
     SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH = 4,
     SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA = 5,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM = 6,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM_DEPTH = 7,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY = 8,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM = 9,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE = 10,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT = 11,
 } SimulationScreenFluidVisualizationMode;
 
 typedef enum SimulationScreenFluidSmoothingMode
@@ -213,6 +234,8 @@ void SimulationRenderer_Render (
     f32 density_maximum,
     f32 speed_minimum,
     f32 speed_maximum,
+    f32 spawn_factor_minimum,
+    f32 spawn_factor_maximum,
     i32 viewport_width,
     i32 viewport_height);
 

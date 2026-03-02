@@ -19,6 +19,7 @@ typedef struct SimulationParticleBuffers
     OpenGLBuffer predicted_position_buffer;
     OpenGLBuffer velocity_buffer;
     OpenGLBuffer density_buffer;
+    OpenGLBuffer whitewater_spawn_debug_buffer;
     OpenGLBuffer sort_target_position_buffer;
     OpenGLBuffer sort_target_predicted_position_buffer;
     OpenGLBuffer sort_target_velocity_buffer;

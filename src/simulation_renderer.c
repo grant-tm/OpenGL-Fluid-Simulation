@@ -26,7 +26,8 @@ static void SimulationRenderer_DrawWhitewaterToFoamTexture (
     const SimulationWhitewater *whitewater,
     Mat4 projection_matrix,
     Mat4 view_matrix,
-    SimulationScaleModel scale_model);
+    SimulationScaleModel scale_model,
+    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode);
 
 static Mat4 SimulationRenderer_CreateInversePerspective (Mat4 projection_matrix)
 {
@@ -294,6 +295,7 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 fluid_depth_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_depth.frag");
     u32 fullscreen_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/fullscreen_quad.vert");
     u32 prepare_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_prepare.frag");
+    u32 depth_copy_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_depth_copy.frag");
     u32 blur_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_blur.frag");
     u32 normal_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_normal.frag");
     u32 debug_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_debug.frag");
@@ -302,17 +304,20 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 airborne_foam_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_airborne_foam.frag");
     u32 whitewater_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/whitewater_points.vert");
     u32 whitewater_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/whitewater_points.frag");
+    u32 whitewater_copy_count_cs = OpenGL_CreateComputeProgramFromFile("assets/shaders/whitewater_copy_count_to_args.comp");
     if (particle_vs == 0 || particle_fs == 0 || line_vs == 0 || line_fs == 0 ||
         fluid_thickness_vs == 0 || fluid_thickness_fs == 0 || fluid_depth_vs == 0 || fluid_depth_fs == 0 ||
-        fullscreen_vs == 0 || prepare_fs == 0 || blur_fs == 0 || normal_fs == 0 || debug_fs == 0 ||
-        shadow_blur_fs == 0 || composite_fs == 0 || airborne_foam_fs == 0 || whitewater_vs == 0 || whitewater_fs == 0)
+        fullscreen_vs == 0 || prepare_fs == 0 || depth_copy_fs == 0 || blur_fs == 0 || normal_fs == 0 || debug_fs == 0 ||
+        shadow_blur_fs == 0 || composite_fs == 0 || airborne_foam_fs == 0 || whitewater_vs == 0 || whitewater_fs == 0 ||
+        whitewater_copy_count_cs == 0)
     {
         glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
         glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
         glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
-        glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
+        glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(depth_copy_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
         glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs); glDeleteShader(airborne_foam_fs);
         glDeleteShader(whitewater_vs); glDeleteShader(whitewater_fs);
+        if (whitewater_copy_count_cs != 0) glDeleteProgram(whitewater_copy_count_cs);
         return false;
     }
     u32 pair[2];
@@ -321,6 +326,7 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     pair[0] = fluid_thickness_vs; pair[1] = fluid_thickness_fs; renderer->screen_fluid_thickness_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_thickness");
     pair[0] = fluid_depth_vs; pair[1] = fluid_depth_fs; renderer->screen_fluid_depth_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_depth");
     pair[0] = fullscreen_vs; pair[1] = prepare_fs; renderer->screen_fluid_prepare_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_prepare");
+    pair[0] = fullscreen_vs; pair[1] = depth_copy_fs; renderer->screen_fluid_depth_copy_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_depth_copy");
     pair[0] = fullscreen_vs; pair[1] = blur_fs; renderer->screen_fluid_blur_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_blur");
     pair[0] = fullscreen_vs; pair[1] = normal_fs; renderer->screen_fluid_normal_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_normal");
     pair[0] = fullscreen_vs; pair[1] = debug_fs; renderer->screen_fluid_debug_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_debug");
@@ -328,10 +334,11 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     pair[0] = fullscreen_vs; pair[1] = composite_fs; renderer->screen_fluid_composite_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_composite");
     pair[0] = fullscreen_vs; pair[1] = airborne_foam_fs; renderer->screen_fluid_airborne_foam_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_airborne_foam");
     pair[0] = whitewater_vs; pair[1] = whitewater_fs; renderer->whitewater_program_identifier = OpenGL_LinkProgram(pair, 2, "whitewater_points");
+    renderer->whitewater_copy_count_program_identifier = whitewater_copy_count_cs;
     glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
     glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
     glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
-    glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
+    glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(depth_copy_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
     glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs); glDeleteShader(airborne_foam_fs);
     glDeleteShader(whitewater_vs); glDeleteShader(whitewater_fs);
     return renderer->particle_program_identifier != 0 &&
@@ -339,13 +346,15 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
         renderer->screen_fluid_thickness_program_identifier != 0 &&
         renderer->screen_fluid_depth_program_identifier != 0 &&
         renderer->screen_fluid_prepare_program_identifier != 0 &&
+        renderer->screen_fluid_depth_copy_program_identifier != 0 &&
         renderer->screen_fluid_blur_program_identifier != 0 &&
         renderer->screen_fluid_normal_program_identifier != 0 &&
         renderer->screen_fluid_debug_program_identifier != 0 &&
         renderer->screen_fluid_shadow_blur_program_identifier != 0 &&
         renderer->screen_fluid_composite_program_identifier != 0 &&
         renderer->screen_fluid_airborne_foam_program_identifier != 0 &&
-        renderer->whitewater_program_identifier != 0;
+        renderer->whitewater_program_identifier != 0 &&
+        renderer->whitewater_copy_count_program_identifier != 0;
 }
 
 static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
@@ -359,6 +368,8 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->particle_density_maximum_uniform = glGetUniformLocation(renderer->particle_program_identifier, "u_density_maximum");
     renderer->particle_speed_minimum_uniform = glGetUniformLocation(renderer->particle_program_identifier, "u_speed_minimum");
     renderer->particle_speed_maximum_uniform = glGetUniformLocation(renderer->particle_program_identifier, "u_speed_maximum");
+    renderer->particle_spawn_factor_minimum_uniform = glGetUniformLocation(renderer->particle_program_identifier, "u_spawn_factor_minimum");
+    renderer->particle_spawn_factor_maximum_uniform = glGetUniformLocation(renderer->particle_program_identifier, "u_spawn_factor_maximum");
     renderer->line_projection_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_projection");
     renderer->line_view_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_view");
     renderer->line_color_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_color");
@@ -366,6 +377,10 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->whitewater_projection_uniform = glGetUniformLocation(renderer->whitewater_program_identifier, "u_projection");
     renderer->whitewater_view_uniform = glGetUniformLocation(renderer->whitewater_program_identifier, "u_view");
     renderer->whitewater_scale_uniform = glGetUniformLocation(renderer->whitewater_program_identifier, "u_scale");
+    renderer->whitewater_debug_class_filter_uniform =
+        glGetUniformLocation(renderer->whitewater_program_identifier, "u_debug_class_filter");
+    renderer->whitewater_debug_output_mode_uniform =
+        glGetUniformLocation(renderer->whitewater_program_identifier, "u_debug_output_mode");
     renderer->screen_fluid_thickness_projection_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_projection");
     renderer->screen_fluid_thickness_view_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_view");
     renderer->screen_fluid_thickness_point_size_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_point_size");
@@ -375,6 +390,7 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->screen_fluid_depth_viewport_height_uniform = glGetUniformLocation(renderer->screen_fluid_depth_program_identifier, "u_viewport_height");
     renderer->screen_fluid_prepare_depth_texture_uniform = glGetUniformLocation(renderer->screen_fluid_prepare_program_identifier, "u_depth_texture");
     renderer->screen_fluid_prepare_thickness_texture_uniform = glGetUniformLocation(renderer->screen_fluid_prepare_program_identifier, "u_thickness_texture");
+    renderer->screen_fluid_depth_copy_texture_uniform = glGetUniformLocation(renderer->screen_fluid_depth_copy_program_identifier, "u_source_texture");
     renderer->screen_fluid_blur_texture_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_source_texture");
     renderer->screen_fluid_blur_filter_mode_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_filter_mode");
     renderer->screen_fluid_blur_depth_texture_uniform = glGetUniformLocation(renderer->screen_fluid_blur_program_identifier, "u_depth_texture");
@@ -409,6 +425,7 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->screen_fluid_composite_shadow_view_projection_uniform = glGetUniformLocation(renderer->screen_fluid_composite_program_identifier, "u_shadow_view_projection");
     renderer->screen_fluid_airborne_foam_fluid_texture_uniform = glGetUniformLocation(renderer->screen_fluid_airborne_foam_program_identifier, "u_fluid_texture");
     renderer->screen_fluid_airborne_foam_foam_texture_uniform = glGetUniformLocation(renderer->screen_fluid_airborne_foam_program_identifier, "u_foam_texture");
+    renderer->screen_fluid_airborne_foam_scene_texture_uniform = glGetUniformLocation(renderer->screen_fluid_airborne_foam_program_identifier, "u_scene_texture");
 }
 
 static bool SimulationRenderer_CreateParticleGeometry (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers)
@@ -428,6 +445,9 @@ static bool SimulationRenderer_CreateParticleGeometry (SimulationRenderer *rende
     glBindBuffer(GL_ARRAY_BUFFER, particle_buffers->spatial_key_buffer.identifier);
     glVertexAttribIPointer(3, 1, GL_UNSIGNED_INT, sizeof(u32), (void *) 0);
     glEnableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, particle_buffers->whitewater_spawn_debug_buffer.identifier);
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(f32), (void *) 0);
+    glEnableVertexAttribArray(4);
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     return true;
@@ -462,12 +482,15 @@ static bool SimulationRenderer_CreateWhitewaterGeometry (
     glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ARRAY_BUFFER, whitewater->particle_buffer.identifier);
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(f32), (void *) 0);
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 12 * sizeof(f32), (void *) 0);
     glEnableVertexAttribArray(2);
     glVertexAttribDivisor(2, 1);
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(f32), (void *) (4 * sizeof(f32)));
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 12 * sizeof(f32), (void *) (4 * sizeof(f32)));
     glEnableVertexAttribArray(3);
     glVertexAttribDivisor(3, 1);
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 12 * sizeof(f32), (void *) (8 * sizeof(f32)));
+    glEnableVertexAttribArray(4);
+    glVertexAttribDivisor(4, 1);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -501,6 +524,8 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     if (renderer->screen_fluid_shadow_texture_identifier == 0) glGenTextures(1, &renderer->screen_fluid_shadow_texture_identifier);
     if (renderer->screen_fluid_shadow_blur_texture_identifier == 0) glGenTextures(1, &renderer->screen_fluid_shadow_blur_texture_identifier);
     if (renderer->screen_fluid_depth_renderbuffer_identifier == 0) glGenRenderbuffers(1, &renderer->screen_fluid_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_foam_depth_renderbuffer_identifier == 0) glGenRenderbuffers(1, &renderer->screen_fluid_foam_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_thickness_depth_renderbuffer_identifier == 0) glGenRenderbuffers(1, &renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
     if (renderer->screen_fluid_framebuffer_identifier == 0 ||
         renderer->screen_fluid_blur_framebuffer_identifier == 0 ||
         renderer->screen_fluid_thickness_texture_identifier == 0 || renderer->screen_fluid_depth_texture_identifier == 0 ||
@@ -508,7 +533,9 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
         renderer->screen_fluid_normal_texture_identifier == 0 || renderer->screen_fluid_scene_texture_identifier == 0 ||
         renderer->screen_fluid_foam_texture_identifier == 0 ||
         renderer->screen_fluid_shadow_texture_identifier == 0 || renderer->screen_fluid_shadow_blur_texture_identifier == 0 ||
-        renderer->screen_fluid_depth_renderbuffer_identifier == 0) return false;
+        renderer->screen_fluid_depth_renderbuffer_identifier == 0 ||
+        renderer->screen_fluid_foam_depth_renderbuffer_identifier == 0 ||
+        renderer->screen_fluid_thickness_depth_renderbuffer_identifier == 0) return false;
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -544,13 +571,13 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture_width, texture_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, thickness_texture_width, thickness_texture_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_foam_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, thickness_texture_width, thickness_texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_shadow_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -583,6 +610,10 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
         NULL);
     glBindRenderbuffer(GL_RENDERBUFFER, renderer->screen_fluid_depth_renderbuffer_identifier);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, texture_width, texture_height);
+    glBindRenderbuffer(GL_RENDERBUFFER, renderer->screen_fluid_foam_depth_renderbuffer_identifier);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, thickness_texture_width, thickness_texture_height);
+    glBindRenderbuffer(GL_RENDERBUFFER, renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, thickness_texture_width, thickness_texture_height);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_normal_texture_identifier, 0);
@@ -591,6 +622,7 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_blur_texture_identifier, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
     glBindFramebuffer(GL_FRAMEBUFFER, 0); glBindTexture(GL_TEXTURE_2D, 0); glBindRenderbuffer(GL_RENDERBUFFER, 0);
     return true;
@@ -641,6 +673,9 @@ static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *ren
     if (renderer->screen_fluid_shadow_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_shadow_texture_identifier);
     if (renderer->screen_fluid_shadow_blur_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_shadow_blur_texture_identifier);
     if (renderer->screen_fluid_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_foam_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_foam_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_thickness_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_thickness_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
     renderer->screen_fluid_thickness_texture_identifier = 0;
     renderer->screen_fluid_depth_texture_identifier = 0;
     renderer->screen_fluid_depth_blur_texture_identifier = 0;
@@ -653,6 +688,8 @@ static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *ren
     renderer->screen_fluid_shadow_texture_identifier = 0;
     renderer->screen_fluid_shadow_blur_texture_identifier = 0;
     renderer->screen_fluid_depth_renderbuffer_identifier = 0;
+    renderer->screen_fluid_foam_depth_renderbuffer_identifier = 0;
+    renderer->screen_fluid_thickness_depth_renderbuffer_identifier = 0;
     renderer->screen_fluid_shadow_texture_width = 0;
     renderer->screen_fluid_shadow_texture_height = 0;
     renderer->screen_fluid_thickness_texture_width = 0;
@@ -677,10 +714,13 @@ bool SimulationRenderer_Initialize (
     const SimulationParticleBuffers *particle_buffers,
     const SimulationWhitewater *whitewater)
 {
+    static const u32 initial_draw_arguments[4] = {4u, 0u, 0u, 0u};
+
     Base_Assert(renderer != NULL);
     Base_Assert(particle_buffers != NULL);
     Base_Assert(whitewater != NULL);
     memset(renderer, 0, sizeof(*renderer));
+    if (!OpenGL_LoadComputeFunctions() || !OpenGL_LoadIndirectDrawFunctions()) return false;
     if (!SimulationRenderer_CreateProgramSet(renderer)) return false;
     SimulationRenderer_QueryUniforms(renderer);
     if (!SimulationRenderer_CreateParticleGeometry(renderer, particle_buffers) ||
@@ -692,6 +732,19 @@ bool SimulationRenderer_Initialize (
         SimulationRenderer_Shutdown(renderer);
         return false;
     }
+    glGenBuffers(1, &renderer->whitewater_draw_arguments_buffer_identifier);
+    if (renderer->whitewater_draw_arguments_buffer_identifier == 0)
+    {
+        SimulationRenderer_Shutdown(renderer);
+        return false;
+    }
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, renderer->whitewater_draw_arguments_buffer_identifier);
+    glBufferData(
+        GL_DRAW_INDIRECT_BUFFER,
+        (GLsizeiptr) sizeof(initial_draw_arguments),
+        initial_draw_arguments,
+        GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
     glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_scene_copy_query_identifiers);
     glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_shadow_query_identifiers);
     glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_surface_inputs_query_identifiers);
@@ -713,9 +766,11 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer->particle_program_identifier != 0) glDeleteProgram(renderer->particle_program_identifier);
     if (renderer->line_program_identifier != 0) glDeleteProgram(renderer->line_program_identifier);
     if (renderer->whitewater_program_identifier != 0) glDeleteProgram(renderer->whitewater_program_identifier);
+    if (renderer->whitewater_copy_count_program_identifier != 0) glDeleteProgram(renderer->whitewater_copy_count_program_identifier);
     if (renderer->screen_fluid_thickness_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_thickness_program_identifier);
     if (renderer->screen_fluid_depth_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_depth_program_identifier);
     if (renderer->screen_fluid_prepare_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_prepare_program_identifier);
+    if (renderer->screen_fluid_depth_copy_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_depth_copy_program_identifier);
     if (renderer->screen_fluid_blur_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_blur_program_identifier);
     if (renderer->screen_fluid_normal_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_normal_program_identifier);
     if (renderer->screen_fluid_debug_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_debug_program_identifier);
@@ -729,10 +784,12 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer->bounds_vbo_identifier != 0) glDeleteBuffers(1, &renderer->bounds_vbo_identifier);
     if (renderer->whitewater_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->whitewater_vao_identifier);
     if (renderer->whitewater_quad_vbo_identifier != 0) glDeleteBuffers(1, &renderer->whitewater_quad_vbo_identifier);
+    if (renderer->whitewater_draw_arguments_buffer_identifier != 0) glDeleteBuffers(1, &renderer->whitewater_draw_arguments_buffer_identifier);
     if (renderer->fullscreen_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->fullscreen_vao_identifier);
     if (renderer->screen_fluid_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_framebuffer_identifier);
     if (renderer->screen_fluid_blur_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_blur_framebuffer_identifier);
     if (renderer->screen_fluid_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_depth_renderbuffer_identifier);
+    if (renderer->screen_fluid_foam_depth_renderbuffer_identifier != 0) glDeleteRenderbuffers(1, &renderer->screen_fluid_foam_depth_renderbuffer_identifier);
     if (renderer->screen_fluid_thickness_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_thickness_texture_identifier);
     if (renderer->screen_fluid_depth_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_depth_texture_identifier);
     if (renderer->screen_fluid_depth_blur_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_depth_blur_texture_identifier);
@@ -772,7 +829,8 @@ void SimulationRenderer_UpdateCamera (SimulationCamera *camera, f32 delta_time_s
 
 static void SimulationRenderer_DrawParticles (
     SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers, Mat4 projection_matrix, Mat4 view_matrix,
-    SimulationParticleVisualizationMode particle_visualization_mode, f32 density_minimum, f32 density_maximum, f32 speed_minimum, f32 speed_maximum)
+    SimulationParticleVisualizationMode particle_visualization_mode, f32 density_minimum, f32 density_maximum, f32 speed_minimum, f32 speed_maximum,
+    f32 spawn_factor_minimum, f32 spawn_factor_maximum)
 {
     glUseProgram(renderer->particle_program_identifier);
     glUniformMatrix4fv(renderer->particle_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
@@ -784,6 +842,8 @@ static void SimulationRenderer_DrawParticles (
     glUniform1f(renderer->particle_density_maximum_uniform, density_maximum);
     glUniform1f(renderer->particle_speed_minimum_uniform, speed_minimum);
     glUniform1f(renderer->particle_speed_maximum_uniform, speed_maximum);
+    glUniform1f(renderer->particle_spawn_factor_minimum_uniform, spawn_factor_minimum);
+    glUniform1f(renderer->particle_spawn_factor_maximum_uniform, spawn_factor_maximum);
     glBindVertexArray(renderer->particle_vao_identifier);
     glDrawArrays(GL_POINTS, 0, (GLsizei) particle_buffers->particle_count);
 }
@@ -826,7 +886,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_scene_texture_identifier);
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, renderer->screen_fluid_texture_width, renderer->screen_fluid_texture_height);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, viewport_width, viewport_height);
     glBindTexture(GL_TEXTURE_2D, 0);
     SimulationRenderer_EndGpuTimerQuery(renderer->gpu_scene_copy_query_identifiers[gpu_query_identifier_index]);
     QueryPerformanceCounter(&pass_end_counter);
@@ -883,21 +943,42 @@ static void SimulationRenderer_DrawScreenFluid (
     SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_surface_inputs_query_identifiers[gpu_query_identifier_index]);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_foam_texture_identifier, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderer->screen_fluid_foam_depth_renderbuffer_identifier);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
-    glViewport(0, 0, renderer->screen_fluid_texture_width, renderer->screen_fluid_texture_height);
+    glViewport(0, 0, renderer->screen_fluid_thickness_texture_width, renderer->screen_fluid_thickness_texture_height);
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glClearColor(0.0f, 1.0f, 10000.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    SimulationRenderer_DrawWhitewaterToFoamTexture(renderer, whitewater, projection_matrix, view_matrix, scale_model);
+    SimulationRenderer_DrawWhitewaterToFoamTexture(
+        renderer,
+        whitewater,
+        projection_matrix,
+        view_matrix,
+        scale_model,
+        screen_fluid_visualization_mode);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
+    glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderer->screen_fluid_thickness_depth_renderbuffer_identifier);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glViewport(0, 0, renderer->screen_fluid_thickness_texture_width, renderer->screen_fluid_thickness_texture_height);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
+    glDepthMask(GL_TRUE);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glUseProgram(renderer->screen_fluid_depth_copy_program_identifier);
+    glUniform1i(renderer->screen_fluid_depth_copy_texture_uniform, 0);
+    glBindVertexArray(renderer->fullscreen_vao_identifier);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_foam_texture_identifier);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
@@ -909,8 +990,11 @@ static void SimulationRenderer_DrawScreenFluid (
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei) particle_buffers->particle_count);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
 
+    glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderer->screen_fluid_depth_renderbuffer_identifier);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
     glViewport(0, 0, renderer->screen_fluid_texture_width, renderer->screen_fluid_texture_height);
     glEnable(GL_DEPTH_TEST);
@@ -1044,7 +1128,13 @@ static void SimulationRenderer_DrawScreenFluid (
         screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL ||
         screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ||
         screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ||
-        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA)
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM_DEPTH ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT)
     {
         glUseProgram(renderer->screen_fluid_debug_program_identifier);
         glUniform1i(renderer->screen_fluid_debug_texture_uniform, 0);
@@ -1054,7 +1144,13 @@ static void SimulationRenderer_DrawScreenFluid (
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL ? 2 :
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ? 3 :
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ? 4 :
-            5);
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA ? 5 :
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT ? 6 :
+            7);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(
             GL_TEXTURE_2D,
@@ -1063,10 +1159,13 @@ static void SimulationRenderer_DrawScreenFluid (
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ||
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA ?
                 final_comp_texture_identifier :
-                renderer->screen_fluid_normal_texture_identifier);
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL ?
+                renderer->screen_fluid_normal_texture_identifier :
+                renderer->screen_fluid_foam_texture_identifier);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
+
     }
     else
     {
@@ -1112,21 +1211,6 @@ static void SimulationRenderer_DrawScreenFluid (
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glUseProgram(renderer->screen_fluid_airborne_foam_program_identifier);
-        glUniform1i(renderer->screen_fluid_airborne_foam_fluid_texture_uniform, 0);
-        glUniform1i(renderer->screen_fluid_airborne_foam_foam_texture_uniform, 1);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, final_comp_texture_identifier);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_foam_texture_identifier);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        glDisable(GL_BLEND);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, 0);
     }
     SimulationRenderer_EndGpuTimerQuery(renderer->gpu_composite_query_identifiers[gpu_query_identifier_index]);
     QueryPerformanceCounter(&pass_end_counter);
@@ -1151,22 +1235,43 @@ static void SimulationRenderer_DrawWhitewaterToFoamTexture (
     const SimulationWhitewater *whitewater,
     Mat4 projection_matrix,
     Mat4 view_matrix,
-    SimulationScaleModel scale_model)
+    SimulationScaleModel scale_model,
+    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode)
 {
     Base_Assert(renderer != NULL);
     Base_Assert(whitewater != NULL);
 
     if (whitewater->maximum_particle_count == 0) return;
 
+    glUseProgram(renderer->whitewater_copy_count_program_identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, whitewater->counter_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, renderer->whitewater_draw_arguments_buffer_identifier);
+    OpenGL_DispatchCompute(1, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_COMMAND_BARRIER_BIT);
+
     glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
     glDepthMask(GL_TRUE);
     glUseProgram(renderer->whitewater_program_identifier);
     glUniformMatrix4fv(renderer->whitewater_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->whitewater_view_uniform, 1, GL_FALSE, view_matrix.elements);
     glUniform1f(renderer->whitewater_scale_uniform, scale_model.whitewater_billboard_scale);
+    glUniform1i(
+        renderer->whitewater_debug_class_filter_uniform,
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY ? 1 :
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM ? 2 :
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE ? 3 :
+        0);
+    glUniform1i(
+        renderer->whitewater_debug_output_mode_uniform,
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT ? 1 : 0);
     glBindVertexArray(renderer->whitewater_vao_identifier);
-    glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei) whitewater->maximum_particle_count);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, renderer->whitewater_draw_arguments_buffer_identifier);
+    OpenGL_DrawArraysIndirect(GL_TRIANGLE_STRIP, 0);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+    glDepthFunc(GL_LESS);
 }
 
 void SimulationRenderer_LogScreenFluidReadback (SimulationRenderer *renderer)
@@ -1326,6 +1431,8 @@ void SimulationRenderer_Render (
     f32 density_maximum,
     f32 speed_minimum,
     f32 speed_maximum,
+    f32 spawn_factor_minimum,
+    f32 spawn_factor_maximum,
     i32 viewport_width,
     i32 viewport_height)
 {
@@ -1424,7 +1531,18 @@ void SimulationRenderer_Render (
     else
     {
         QueryPerformanceCounter(&pass_start_counter);
-        SimulationRenderer_DrawParticles(renderer, particle_buffers, projection_matrix, camera_matrices.view_matrix, particle_visualization_mode, density_minimum, density_maximum, speed_minimum, speed_maximum);
+        SimulationRenderer_DrawParticles(
+            renderer,
+            particle_buffers,
+            projection_matrix,
+            camera_matrices.view_matrix,
+            particle_visualization_mode,
+            density_minimum,
+            density_maximum,
+            speed_minimum,
+            speed_maximum,
+            spawn_factor_minimum,
+            spawn_factor_maximum);
         QueryPerformanceCounter(&pass_end_counter);
         renderer->last_debug_timings.particles_milliseconds =
             SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);

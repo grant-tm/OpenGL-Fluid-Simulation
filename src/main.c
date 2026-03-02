@@ -65,6 +65,8 @@ typedef struct Application
     f32 maximum_frame_delta_time_seconds;
     f32 velocity_visualization_minimum;
     f32 velocity_visualization_maximum;
+    f32 whitewater_spawn_debug_visualization_minimum;
+    f32 whitewater_spawn_debug_visualization_maximum;
     f32 window_title_update_accumulator_seconds;
     f32 most_recent_frame_delta_time_seconds;
     f32 most_recent_swap_buffers_milliseconds;
@@ -108,8 +110,10 @@ static void Application_ResetSimulation(Application *application);
 static void Application_UpdateSimulation(Application *application, f32 frame_delta_time_seconds);
 static void Application_UpdateDensityVisualizationRange(Application *application);
 static void Application_UpdateVelocityVisualizationRange(Application *application);
+static void Application_UpdateWhitewaterSpawnDebugVisualizationRange(Application *application);
 static void Application_LogSpatialHashInspection(Application *application);
 static void Application_LogVolumeDensitySummary(Application *application);
+static void Application_LogWhitewaterSpawnDebugSummary(Application *application);
 static const char *Application_GetRenderModeName(SimulationRenderMode render_mode);
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode);
 static const char *Application_GetScreenFluidVisualizationModeName(SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode);
@@ -175,14 +179,14 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
         application->volume_density_settings.bounds_size = application->simulation_bounds_size;
         application->volume_density_settings.smoothing_radius = 0.2f;
 
-        application->whitewater_settings.maximum_particle_count = 65536u;
+        application->whitewater_settings.maximum_particle_count = 1024000u;
         application->whitewater_settings.spawn_rate = 120.0f;
         application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
         application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
-        application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
-        application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
-        application->whitewater_settings.kinetic_energy_minimum = 15.0f;
-        application->whitewater_settings.kinetic_energy_maximum = 30.0f;
+        application->whitewater_settings.trapped_air_velocity_minimum = 4.0f;
+        application->whitewater_settings.trapped_air_velocity_maximum = 12.0f;
+        application->whitewater_settings.kinetic_energy_minimum = 1.0f;
+        application->whitewater_settings.kinetic_energy_maximum = 8.0f;
         application->whitewater_settings.gravity = application->step_settings.gravity;
         application->whitewater_settings.target_density = application->pressure_settings.target_density;
         application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
@@ -439,6 +443,46 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == 'T')
+            {
+                if (application != NULL)
+                {
+                    application->particle_visualization_mode = SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE;
+                    Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+                    Base_LogInfo("Visualization mode: %s", Application_GetVisualizationModeName(application->particle_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'Y')
+            {
+                if (application != NULL)
+                {
+                    application->particle_visualization_mode = SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR;
+                    Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+                    Base_LogInfo("Visualization mode: %s", Application_GetVisualizationModeName(application->particle_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'U')
+            {
+                if (application != NULL)
+                {
+                    application->particle_visualization_mode = SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR;
+                    Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+                    Base_LogInfo("Visualization mode: %s", Application_GetVisualizationModeName(application->particle_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'F')
+            {
+                if (application != NULL)
+                {
+                    application->particle_visualization_mode = SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR;
+                    Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+                    Base_LogInfo("Visualization mode: %s", Application_GetVisualizationModeName(application->particle_visualization_mode));
+                }
+                return 0;
+            }
             if (wide_param == 'B')
             {
                 if (application != NULL)
@@ -531,6 +575,72 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == VK_OEM_4)
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == VK_OEM_6)
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM_DEPTH;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'Z')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'X')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'C')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'L')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
             if (wide_param == 'I')
             {
                 if (application != NULL)
@@ -544,6 +654,14 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 if (application != NULL)
                 {
                     Application_LogVolumeDensitySummary(application);
+                }
+                return 0;
+            }
+            if (wide_param == 'O')
+            {
+                if (application != NULL)
+                {
+                    Application_LogWhitewaterSpawnDebugSummary(application);
                 }
                 return 0;
             }
@@ -783,6 +901,8 @@ static bool Application_InitializeSimulationView(Application *application)
     application->density_visualization_maximum = 1.0f;
     application->velocity_visualization_minimum = 0.0f;
     application->velocity_visualization_maximum = 1.0f;
+    application->whitewater_spawn_debug_visualization_minimum = 0.0f;
+    application->whitewater_spawn_debug_visualization_maximum = 1.0f;
     application->window_title_update_accumulator_seconds = 0.0f;
     application->most_recent_frame_delta_time_seconds = 0.0f;
     application->simulation_time_seconds = 0.0f;
@@ -838,9 +958,9 @@ static bool Application_InitializeSimulationView(Application *application)
 
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
-    Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, 0 smooth-depth, - hard-depth, = depth-delta, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
-    Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
+    Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash, T/Y/U/F whitewater spawn terms.");
+    Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, 0 smooth-depth, - hard-depth, = depth-delta, [ foam, ] foam-depth, Z spray, X foam-only, C bubble, L whitewater-neighbors, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
+    Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density, O logs whitewater spawn debug.");
     Base_LogInfo("Whitewater: enabled with spawn/update modeled after Example Code.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
@@ -990,6 +1110,22 @@ static bool Application_RebuildSimulationDerivedState(Application *application)
     else if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_VELOCITY)
     {
         Application_UpdateVelocityVisualizationRange(application);
+    }
+    else if (
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR)
+    {
+        Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+    }
+    else if (
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR ||
+        application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR)
+    {
+        Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
     }
 
     return true;
@@ -1211,6 +1347,70 @@ static void Application_UpdateVelocityVisualizationRange(Application *applicatio
     application->velocity_visualization_maximum = maximum_speed;
 }
 
+static void Application_UpdateWhitewaterSpawnDebugVisualizationRange(Application *application)
+{
+    u32 particle_count = application->particle_buffers.particle_count;
+    if (particle_count == 0)
+    {
+        application->whitewater_spawn_debug_visualization_minimum = 0.0f;
+        application->whitewater_spawn_debug_visualization_maximum = 1.0f;
+        return;
+    }
+
+    Vec4 *spawn_debug_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
+    if (spawn_debug_values == NULL)
+    {
+        return;
+    }
+
+    bool read_success = OpenGL_ReadBuffer(
+        &application->particle_buffers.whitewater_spawn_debug_buffer,
+        spawn_debug_values,
+        (i32) (particle_count * sizeof(Vec4)));
+
+    if (!read_success)
+    {
+        free(spawn_debug_values);
+        return;
+    }
+
+    int component_index = 3;
+    if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE)
+    {
+        component_index = 0;
+    }
+    else if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR)
+    {
+        component_index = 1;
+    }
+    else if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR)
+    {
+        component_index = 2;
+    }
+
+    f32 spawn_debug_minimum = 0.0f;
+    if (component_index == 0) spawn_debug_minimum = spawn_debug_values[0].x;
+    else if (component_index == 1) spawn_debug_minimum = spawn_debug_values[0].y;
+    else if (component_index == 2) spawn_debug_minimum = spawn_debug_values[0].z;
+    else spawn_debug_minimum = spawn_debug_values[0].w;
+    f32 spawn_debug_maximum = spawn_debug_minimum;
+
+    for (u32 particle_index = 1; particle_index < particle_count; particle_index++)
+    {
+        f32 spawn_debug_value = 0.0f;
+        if (component_index == 0) spawn_debug_value = spawn_debug_values[particle_index].x;
+        else if (component_index == 1) spawn_debug_value = spawn_debug_values[particle_index].y;
+        else if (component_index == 2) spawn_debug_value = spawn_debug_values[particle_index].z;
+        else spawn_debug_value = spawn_debug_values[particle_index].w;
+        if (spawn_debug_value < spawn_debug_minimum) spawn_debug_minimum = spawn_debug_value;
+        if (spawn_debug_value > spawn_debug_maximum) spawn_debug_maximum = spawn_debug_value;
+    }
+
+    free(spawn_debug_values);
+    application->whitewater_spawn_debug_visualization_minimum = spawn_debug_minimum;
+    application->whitewater_spawn_debug_visualization_maximum = spawn_debug_maximum;
+}
+
 static void Application_LogSpatialHashInspection(Application *application)
 {
     u32 particle_count = application->particle_buffers.particle_count;
@@ -1340,6 +1540,101 @@ static void Application_LogVolumeDensitySummary(Application *application)
         application->volume_density_settings.resolution_z);
 }
 
+static void Application_LogWhitewaterSpawnDebugSummary(Application *application)
+{
+    u32 particle_count = application->particle_buffers.particle_count;
+    if (particle_count == 0)
+    {
+        Base_LogInfo("Whitewater spawn debug skipped: no particles.");
+        return;
+    }
+
+    Vec4 *spawn_debug_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
+    if (spawn_debug_values == NULL)
+    {
+        Base_LogError("Failed to allocate whitewater spawn debug readback.");
+        return;
+    }
+
+    bool read_success = OpenGL_ReadBuffer(
+        &application->particle_buffers.whitewater_spawn_debug_buffer,
+        spawn_debug_values,
+        (i32) (particle_count * sizeof(Vec4)));
+
+    if (!read_success)
+    {
+        free(spawn_debug_values);
+        Base_LogError("Whitewater spawn debug readback failed.");
+        return;
+    }
+
+    f32 weighted_velocity_difference_minimum = spawn_debug_values[0].x;
+    f32 weighted_velocity_difference_maximum = spawn_debug_values[0].x;
+    f32 trapped_air_factor_minimum = spawn_debug_values[0].y;
+    f32 trapped_air_factor_maximum = spawn_debug_values[0].y;
+    f32 kinetic_energy_factor_minimum = spawn_debug_values[0].z;
+    f32 kinetic_energy_factor_maximum = spawn_debug_values[0].z;
+    f32 spawn_factor_minimum = spawn_debug_values[0].w;
+    f32 spawn_factor_maximum = spawn_debug_values[0].w;
+    f64 weighted_velocity_difference_sum = 0.0;
+    f64 trapped_air_factor_sum = 0.0;
+    f64 kinetic_energy_factor_sum = 0.0;
+    f64 spawn_factor_sum = 0.0;
+    u32 trapped_air_active_count = 0u;
+    u32 kinetic_energy_active_count = 0u;
+    u32 spawn_active_count = 0u;
+    u32 overlap_active_count = 0u;
+
+    for (u32 particle_index = 0; particle_index < particle_count; particle_index++)
+    {
+        Vec4 spawn_debug = spawn_debug_values[particle_index];
+
+        if (spawn_debug.x < weighted_velocity_difference_minimum) weighted_velocity_difference_minimum = spawn_debug.x;
+        if (spawn_debug.x > weighted_velocity_difference_maximum) weighted_velocity_difference_maximum = spawn_debug.x;
+        if (spawn_debug.y < trapped_air_factor_minimum) trapped_air_factor_minimum = spawn_debug.y;
+        if (spawn_debug.y > trapped_air_factor_maximum) trapped_air_factor_maximum = spawn_debug.y;
+        if (spawn_debug.z < kinetic_energy_factor_minimum) kinetic_energy_factor_minimum = spawn_debug.z;
+        if (spawn_debug.z > kinetic_energy_factor_maximum) kinetic_energy_factor_maximum = spawn_debug.z;
+        if (spawn_debug.w < spawn_factor_minimum) spawn_factor_minimum = spawn_debug.w;
+        if (spawn_debug.w > spawn_factor_maximum) spawn_factor_maximum = spawn_debug.w;
+
+        weighted_velocity_difference_sum += spawn_debug.x;
+        trapped_air_factor_sum += spawn_debug.y;
+        kinetic_energy_factor_sum += spawn_debug.z;
+        spawn_factor_sum += spawn_debug.w;
+
+        if (spawn_debug.y > 0.0f) trapped_air_active_count += 1u;
+        if (spawn_debug.z > 0.0f) kinetic_energy_active_count += 1u;
+        if (spawn_debug.w > 0.0f) spawn_active_count += 1u;
+        if (spawn_debug.y > 0.0f && spawn_debug.z > 0.0f) overlap_active_count += 1u;
+    }
+
+    free(spawn_debug_values);
+
+    Base_LogInfo(
+        "Whitewater spawn debug: wvd[min=%.5f max=%.5f avg=%.5f] trapped[min=%.5f max=%.5f avg=%.5f active=%u/%u] kinetic[min=%.5f max=%.5f avg=%.5f active=%u/%u] overlap=%u/%u spawn[min=%.7f max=%.7f avg=%.7f active=%u/%u]",
+        weighted_velocity_difference_minimum,
+        weighted_velocity_difference_maximum,
+        (f32) (weighted_velocity_difference_sum / (f64) particle_count),
+        trapped_air_factor_minimum,
+        trapped_air_factor_maximum,
+        (f32) (trapped_air_factor_sum / (f64) particle_count),
+        trapped_air_active_count,
+        particle_count,
+        kinetic_energy_factor_minimum,
+        kinetic_energy_factor_maximum,
+        (f32) (kinetic_energy_factor_sum / (f64) particle_count),
+        kinetic_energy_active_count,
+        particle_count,
+        overlap_active_count,
+        particle_count,
+        spawn_factor_minimum,
+        spawn_factor_maximum,
+        (f32) (spawn_factor_sum / (f64) particle_count),
+        spawn_active_count,
+        particle_count);
+}
+
 static const char *Application_GetRenderModeName(SimulationRenderMode render_mode)
 {
     switch (render_mode)
@@ -1359,6 +1654,10 @@ static const char *Application_GetVisualizationModeName(SimulationParticleVisual
         case SIMULATION_PARTICLE_VISUALIZATION_DENSITY: return "density";
         case SIMULATION_PARTICLE_VISUALIZATION_VELOCITY: return "velocity";
         case SIMULATION_PARTICLE_VISUALIZATION_SPATIAL_KEY: return "spatial hash";
+        case SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE: return "whitewater weighted velocity difference";
+        case SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR: return "whitewater trapped-air factor";
+        case SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR: return "whitewater kinetic-energy factor";
+        case SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR: return "whitewater spawn factor";
     }
 
     return "unknown";
@@ -1374,6 +1673,12 @@ static const char *Application_GetScreenFluidVisualizationModeName(SimulationScr
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH: return "smooth depth";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH: return "hard depth";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA: return "depth delta";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM: return "foam";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_FOAM_DEPTH: return "foam depth";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_SPRAY: return "whitewater spray";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM: return "whitewater foam";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE: return "whitewater bubble";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT: return "whitewater neighbors";
     }
 
     return "unknown";
@@ -1471,6 +1776,8 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         application->density_visualization_maximum,
         application->velocity_visualization_minimum,
         application->velocity_visualization_maximum,
+        application->whitewater_spawn_debug_visualization_minimum,
+        application->whitewater_spawn_debug_visualization_maximum,
         application->client_width,
         application->client_height);
     QueryPerformanceFrequency(&performance_frequency);

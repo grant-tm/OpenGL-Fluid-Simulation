@@ -4,6 +4,7 @@ layout(location = 0) in vec4 a_position;
 layout(location = 1) in vec4 a_density;
 layout(location = 2) in vec4 a_velocity;
 layout(location = 3) in uint a_spatial_key;
+layout(location = 4) in vec4 a_whitewater_spawn_debug;
 
 uniform mat4 u_projection;
 uniform mat4 u_view;
@@ -13,6 +14,8 @@ uniform float u_density_minimum;
 uniform float u_density_maximum;
 uniform float u_speed_minimum;
 uniform float u_speed_maximum;
+uniform float u_spawn_factor_minimum;
+uniform float u_spawn_factor_maximum;
 
 out vec4 v_color;
 
@@ -45,6 +48,25 @@ void main(void)
     else if (u_visualization_mode == 3)
     {
         v_color = vec4(SpatialKeyColor(a_spatial_key), 1.0);
+    }
+    else if (u_visualization_mode >= 4 && u_visualization_mode <= 7)
+    {
+        float component_value = 0.0;
+        if (u_visualization_mode == 4) component_value = a_whitewater_spawn_debug.x;
+        else if (u_visualization_mode == 5) component_value = a_whitewater_spawn_debug.y;
+        else if (u_visualization_mode == 6) component_value = a_whitewater_spawn_debug.z;
+        else component_value = a_whitewater_spawn_debug.w;
+        float spawn_factor_range = max(u_spawn_factor_maximum - u_spawn_factor_minimum, 0.0001);
+        float spawn_factor_value = clamp(
+            (component_value - u_spawn_factor_minimum) / spawn_factor_range,
+            0.0,
+            1.0);
+        vec3 low_color = vec3(0.02, 0.06, 0.12);
+        vec3 mid_color = vec3(0.08, 0.58, 0.95);
+        vec3 high_color = vec3(1.00, 0.92, 0.22);
+        vec3 particle_color = mix(low_color, mid_color, min(spawn_factor_value * 1.5, 1.0));
+        particle_color = mix(particle_color, high_color, max((spawn_factor_value - 0.5) * 2.0, 0.0));
+        v_color = vec4(particle_color, 1.0);
     }
     else
     {

@@ -6,6 +6,7 @@ struct WhitewaterParticle
 {
     vec4 position_and_scale;
     vec4 velocity_and_lifetime;
+    vec4 classification_data;
 };
 
 layout(std430, binding = 0) buffer WhitewaterParticles
@@ -43,6 +44,7 @@ void main(void)
     {
         whitewater_particles[whitewater_index].position_and_scale = vec4(0.0);
         whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(0.0);
+        whitewater_particles[whitewater_index].classification_data = vec4(0.0);
     }
 
     if (whitewater_index == 0u)

@@ -2,6 +2,10 @@
 
 in vec2 v_quad_uv;
 in float v_linear_depth;
+in float v_surface_depth;
+in float v_neighbor_count;
+
+uniform int u_debug_output_mode;
 
 out vec4 fragment_color;
 
@@ -14,5 +18,12 @@ void main(void)
         discard;
     }
 
-    fragment_color = vec4(1.0, gl_FragCoord.z, v_linear_depth, 1.0);
+    if (u_debug_output_mode == 1)
+    {
+        float neighbor_count_value = clamp(v_neighbor_count / 20.0, 0.0, 1.0);
+        fragment_color = vec4(neighbor_count_value, v_surface_depth, v_linear_depth, 1.0);
+        return;
+    }
+
+    fragment_color = vec4(1.0, v_surface_depth, v_linear_depth, 1.0);
 }

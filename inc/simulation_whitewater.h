@@ -31,6 +31,7 @@ typedef struct SimulationWhitewaterParticleGpu
 {
     Vec4 position_and_scale;
     Vec4 velocity_and_lifetime;
+    Vec4 classification_data;
 } SimulationWhitewaterParticleGpu;
 
 typedef struct SimulationWhitewater

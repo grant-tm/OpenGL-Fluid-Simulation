@@ -32,6 +32,14 @@
 #define GL_TEXTURE_FETCH_BARRIER_BIT 0x00000008
 #endif
 
+#ifndef GL_COMMAND_BARRIER_BIT
+#define GL_COMMAND_BARRIER_BIT 0x00000040
+#endif
+
+#ifndef GL_DRAW_INDIRECT_BUFFER
+#define GL_DRAW_INDIRECT_BUFFER 0x8F3F
+#endif
+
 typedef struct OpenGLBuffer
 {
     u32 identifier;
@@ -52,6 +60,9 @@ bool OpenGL_LoadComputeFunctions (void);
 bool OpenGL_ComputeFunctionsAreAvailable (void);
 void OpenGL_DispatchCompute (u32 group_count_x, u32 group_count_y, u32 group_count_z);
 void OpenGL_MemoryBarrier (u32 barrier_flags);
+bool OpenGL_LoadIndirectDrawFunctions (void);
+bool OpenGL_IndirectDrawFunctionsAreAvailable (void);
+void OpenGL_DrawArraysIndirect (u32 primitive_mode, const void *indirect_offset);
 bool OpenGL_LoadImageFunctions (void);
 bool OpenGL_ImageFunctionsAreAvailable (void);
 void OpenGL_BindImageTexture (

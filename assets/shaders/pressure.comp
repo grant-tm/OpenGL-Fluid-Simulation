@@ -36,6 +36,7 @@ struct WhitewaterParticle
 {
     vec4 position_and_scale;
     vec4 velocity_and_lifetime;
+    vec4 classification_data;
 };
 
 layout(std430, binding = 8) buffer WhitewaterParticles
@@ -46,6 +47,11 @@ layout(std430, binding = 8) buffer WhitewaterParticles
 layout(std430, binding = 9) buffer WhitewaterCounters
 {
     uint whitewater_counters[];
+};
+
+layout(std430, binding = 10) buffer WhitewaterSpawnFactors
+{
+    vec4 whitewater_spawn_debug_values[];
 };
 
 uniform float u_smoothing_radius;
@@ -169,6 +175,7 @@ void main(void)
     float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
     vec3 pressure_force = vec3(0.0);
     float weighted_velocity_difference = 0.0;
+    int neighbor_count = 0;
     vec3 current_velocity = velocities[particle_index].xyz;
 
     for (int offset_index = 0; offset_index < 27; offset_index++)
@@ -203,6 +210,7 @@ void main(void)
 
             if (distance_squared <= smoothing_radius_squared)
             {
+                neighbor_count += 1;
                 float distance_to_neighbor = sqrt(distance_squared);
                 vec3 direction_to_neighbor = distance_to_neighbor > 0.0
                     ? offset_to_neighbor / distance_to_neighbor
@@ -244,10 +252,22 @@ void main(void)
 
     vec3 acceleration = pressure_force / particle_density;
     vec3 velocity_new = current_velocity + acceleration * u_delta_time;
+
+    if (neighbor_count < 8)
+    {
+        velocity_new -= velocity_new * u_delta_time * 0.75;
+    }
+
     velocities[particle_index].xyz = velocity_new;
+    whitewater_spawn_debug_values[particle_index] = vec4(0.0);
 
     if (u_enable_whitewater_spawn != 0)
     {
+        if (particle_index == 0u)
+        {
+            whitewater_counters[1] = 0u;
+        }
+
         float fade_in_t = Remap01(
             u_simulation_time,
             u_spawn_rate_fade_start_time,
@@ -264,6 +284,11 @@ void main(void)
                 u_kinetic_energy_minimum,
                 u_kinetic_energy_maximum);
         float spawn_factor = trapped_air_factor * kinetic_energy_factor * u_delta_time;
+        whitewater_spawn_debug_values[particle_index] = vec4(
+            weighted_velocity_difference,
+            trapped_air_factor,
+            kinetic_energy_factor,
+            spawn_factor);
 
         int spawn_count = int(floor(spawn_factor));
         float fractional_spawn_remainder = spawn_factor - float(spawn_count);
@@ -280,6 +305,7 @@ void main(void)
             vec3 cylinder_top = particle_position + velocity_new * u_delta_time;
             vec3 cylinder_axis_a = CalculateOrthonormal(velocity_new);
             vec3 cylinder_axis_b = normalize(cross(cylinder_axis_a, velocity_new));
+            spawn_count = min(spawn_count, u_maximum_whitewater_count - int(base_particle_index) - 1);
 
             for (int spawn_index = 0; spawn_index < spawn_count; spawn_index++)
             {
@@ -305,6 +331,7 @@ void main(void)
                 whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(
                     velocity_new + base_offset,
                     lifetime);
+                whitewater_particles[whitewater_index].classification_data = vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
     }

@@ -8,6 +8,7 @@
 
 typedef void (APIENTRYP GlDispatchComputeFunction)(GLuint group_count_x, GLuint group_count_y, GLuint group_count_z);
 typedef void (APIENTRYP GlMemoryBarrierFunction)(GLbitfield barriers);
+typedef void (APIENTRYP GlDrawArraysIndirectFunction)(GLenum mode, const void *indirect);
 typedef void (APIENTRYP GlBindImageTextureFunction)(
     GLuint unit,
     GLuint texture,
@@ -19,6 +20,7 @@ typedef void (APIENTRYP GlBindImageTextureFunction)(
 
 static GlDispatchComputeFunction gl_dispatch_compute = NULL;
 static GlMemoryBarrierFunction gl_memory_barrier = NULL;
+static GlDrawArraysIndirectFunction gl_draw_arrays_indirect = NULL;
 static GlBindImageTextureFunction gl_bind_image_texture = NULL;
 
 static void *OpenGL_LoadProcedureAddress (const char *procedure_name)
@@ -169,6 +171,30 @@ void OpenGL_MemoryBarrier (u32 barrier_flags)
 {
     Base_Assert(gl_memory_barrier != NULL);
     gl_memory_barrier(barrier_flags);
+}
+
+bool OpenGL_LoadIndirectDrawFunctions (void)
+{
+    gl_draw_arrays_indirect = (GlDrawArraysIndirectFunction) OpenGL_LoadProcedureAddress("glDrawArraysIndirect");
+
+    if (gl_draw_arrays_indirect == NULL)
+    {
+        Base_LogError("Failed to load required indirect draw functions.");
+        return false;
+    }
+
+    return true;
+}
+
+bool OpenGL_IndirectDrawFunctionsAreAvailable (void)
+{
+    return gl_draw_arrays_indirect != NULL;
+}
+
+void OpenGL_DrawArraysIndirect (u32 primitive_mode, const void *indirect_offset)
+{
+    Base_Assert(gl_draw_arrays_indirect != NULL);
+    gl_draw_arrays_indirect(primitive_mode, indirect_offset);
 }
 
 bool OpenGL_LoadImageFunctions (void)

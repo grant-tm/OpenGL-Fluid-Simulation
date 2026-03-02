@@ -90,5 +90,26 @@ void main(void)
         return;
     }
 
+    if (u_debug_mode == 6)
+    {
+        float foam_value = clamp(sample_value.r, 0.0, 1.0);
+        fragment_color = vec4(vec3(foam_value), 1.0);
+        return;
+    }
+
+    if (u_debug_mode == 7)
+    {
+        float foam_linear_depth = sample_value.b;
+        if (foam_linear_depth <= 0.0 || foam_linear_depth > 1000.0)
+        {
+            fragment_color = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float depth_display = exp(-foam_linear_depth * 0.08);
+        fragment_color = vec4(vec3(depth_display), 1.0);
+        return;
+    }
+
     fragment_color = vec4(1.0, 0.0, 1.0, 1.0);
 }

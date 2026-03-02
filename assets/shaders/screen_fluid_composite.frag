@@ -85,13 +85,14 @@ void main(void)
     float hard_thickness = packed_sample.b;
     float hard_depth = packed_sample.a;
     vec4 foam_sample = texture(u_foam_texture, v_texture_coordinate);
-    float foam = foam_sample.r;
+    float foam = clamp(foam_sample.r, 0.0, 1.0);
     float foam_depth = foam_sample.b;
-    float foam_surface_visibility = 0.0;
+    vec3 scene_background_color = texture(u_scene_texture, v_texture_coordinate).rgb;
 
     if (smooth_depth > 1000.0)
     {
-        discard;
+        fragment_color = vec4(scene_background_color * (1.0 - foam) + vec3(foam), 1.0);
+        return;
     }
 
     if (smooth_thickness <= 0.010)
@@ -103,15 +104,6 @@ void main(void)
     {
         discard;
     }
-
-    foam_surface_visibility =
-        foam *
-        (
-            1.0 -
-            smoothstep(
-                hard_depth + 0.010,
-                hard_depth + 0.120,
-                foam_depth));
 
     vec3 surface_normal = texture(u_normal_texture, v_texture_coordinate).xyz * 2.0 - vec3(1.0);
     if (dot(surface_normal, surface_normal) < 0.25)
@@ -158,7 +150,7 @@ void main(void)
     vec3 transmitted_scene_color = scene_color * transmission_factor;
     vec3 refracted_color = mix(in_scatter_color, transmitted_scene_color, clamp(transmission_factor, vec3(0.0), vec3(1.0)));
     refracted_color = mix(refracted_color, refracted_environment_color, 0.24);
-    refracted_color = refracted_color * (1.0 - foam_surface_visibility) + vec3(foam_surface_visibility);
+    refracted_color = refracted_color * (1.0 - foam) + vec3(foam);
 
     vec4 shadow_clip_position = u_shadow_view_projection * vec4(world_position, 1.0);
     shadow_clip_position /= shadow_clip_position.w;
@@ -178,7 +170,10 @@ void main(void)
     float grazing_light = pow(1.0 - view_normal_alignment, 2.0);
 
     reflected_color = max(reflected_color, vec3(0.18, 0.22, 0.28));
-    reflected_color = reflected_color * (1.0 - foam_surface_visibility) + vec3(foam_surface_visibility);
+    if (foam_depth < smooth_depth)
+    {
+        reflected_color = reflected_color * (1.0 - foam) + vec3(foam);
+    }
     vec3 final_color = mix(refracted_color, reflected_color, fresnel_factor);
     final_color += vec3(0.85, 0.93, 1.0) * specular_light * 0.18;
     final_color += vec3(0.04, 0.07, 0.10) * diffuse_light * grazing_light * 0.55;

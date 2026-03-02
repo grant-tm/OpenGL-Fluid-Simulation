@@ -112,6 +112,7 @@ bool SimulationPressure_Run (
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, particle_buffers->spatial_key_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, particle_buffers->spatial_hash_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, particle_buffers->spatial_offset_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, particle_buffers->whitewater_spawn_debug_buffer.identifier);
     if (whitewater != NULL && whitewater_settings != NULL && whitewater->maximum_particle_count > 0)
     {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, whitewater->particle_buffer.identifier);
@@ -130,6 +131,7 @@ bool SimulationPressure_Run (
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 9, 0);
     glUseProgram(0);

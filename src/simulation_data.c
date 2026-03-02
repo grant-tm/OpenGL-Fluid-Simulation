@@ -67,6 +67,12 @@ bool Simulation_CreateParticleBuffersFromSpawnData (SimulationParticleBuffers *p
             spawn_data->densities,
             GL_DYNAMIC_COPY) &&
         OpenGL_CreateBuffer(
+            &particle_buffers->whitewater_spawn_debug_buffer,
+            GL_SHADER_STORAGE_BUFFER,
+            (i32) (spawn_data->particle_count * sizeof(Vec4)),
+            NULL,
+            GL_DYNAMIC_COPY) &&
+        OpenGL_CreateBuffer(
             &particle_buffers->sort_target_position_buffer,
             GL_SHADER_STORAGE_BUFFER,
             (i32) (spawn_data->particle_count * sizeof(Vec4)),
@@ -184,6 +190,7 @@ void Simulation_DestroyParticleBuffers (SimulationParticleBuffers *particle_buff
     OpenGL_DestroyBuffer(&particle_buffers->predicted_position_buffer);
     OpenGL_DestroyBuffer(&particle_buffers->velocity_buffer);
     OpenGL_DestroyBuffer(&particle_buffers->density_buffer);
+    OpenGL_DestroyBuffer(&particle_buffers->whitewater_spawn_debug_buffer);
     OpenGL_DestroyBuffer(&particle_buffers->sort_target_position_buffer);
     OpenGL_DestroyBuffer(&particle_buffers->sort_target_predicted_position_buffer);
     OpenGL_DestroyBuffer(&particle_buffers->sort_target_velocity_buffer);
@@ -253,6 +260,7 @@ bool Simulation_RunDataModelValidation (void)
         particle_buffers.predicted_position_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
         particle_buffers.velocity_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
         particle_buffers.density_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
+        particle_buffers.whitewater_spawn_debug_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
         particle_buffers.sort_target_position_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
         particle_buffers.sort_target_predicted_position_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&
         particle_buffers.sort_target_velocity_buffer.size_in_bytes == (i32) (validation_particle_count * sizeof(Vec4)) &&

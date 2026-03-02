@@ -6,6 +6,7 @@ struct WhitewaterParticle
 {
     vec4 position_and_scale;
     vec4 velocity_and_lifetime;
+    vec4 classification_data;
 };
 
 layout(std430, binding = 0) buffer ParticlePredictedPositions
@@ -59,7 +60,6 @@ uniform int u_spray_classify_maximum_neighbors;
 uniform int u_bubble_classify_minimum_neighbors;
 uniform float u_bubble_scale;
 uniform float u_bubble_scale_change_speed;
-uniform float u_collision_damping;
 uniform vec3 u_bounds_size;
 
 const uint HASH_K1 = 15823u;
@@ -94,39 +94,40 @@ float SmoothingKernelPoly6(float distance_to_neighbor, float smoothing_radius)
 
 void ResolveCollisions(inout vec3 position, inout vec3 velocity)
 {
+    const float whitewater_collision_damping = 0.1;
     vec3 half_bounds_size = u_bounds_size * 0.5;
 
     if (position.x < -half_bounds_size.x)
     {
         position.x = -half_bounds_size.x;
-        velocity.x *= -u_collision_damping;
+        velocity.x *= -whitewater_collision_damping;
     }
     else if (position.x > half_bounds_size.x)
     {
         position.x = half_bounds_size.x;
-        velocity.x *= -u_collision_damping;
+        velocity.x *= -whitewater_collision_damping;
     }
 
     if (position.y < -half_bounds_size.y)
     {
         position.y = -half_bounds_size.y;
-        velocity.y *= -u_collision_damping;
+        velocity.y *= -whitewater_collision_damping;
     }
     else if (position.y > half_bounds_size.y)
     {
         position.y = half_bounds_size.y;
-        velocity.y *= -u_collision_damping;
+        velocity.y *= -whitewater_collision_damping;
     }
 
     if (position.z < -half_bounds_size.z)
     {
         position.z = -half_bounds_size.z;
-        velocity.z *= -u_collision_damping;
+        velocity.z *= -whitewater_collision_damping;
     }
     else if (position.z > half_bounds_size.z)
     {
         position.z = half_bounds_size.z;
-        velocity.z *= -u_collision_damping;
+        velocity.z *= -whitewater_collision_damping;
     }
 }
 
@@ -176,7 +177,7 @@ void main(void)
             vec3 offset_to_neighbor = neighbor_position - position;
             float distance_squared = dot(offset_to_neighbor, offset_to_neighbor);
 
-            if (distance_squared <= smoothing_radius_squared)
+            if (distance_squared < smoothing_radius_squared)
             {
                 float distance_to_neighbor = sqrt(distance_squared);
                 float influence_weight = SmoothingKernelPoly6(distance_to_neighbor, u_smoothing_radius);
@@ -192,7 +193,8 @@ void main(void)
     bool is_spray = neighbor_count <= u_spray_classify_maximum_neighbors;
     bool is_bubble = neighbor_count >= u_bubble_classify_minimum_neighbors;
     bool is_foam = !(is_spray || is_bubble);
-    vec3 average_velocity = weight_sum > 0.0001 ? velocity_sum / weight_sum : velocity;
+    float particle_class = is_spray ? 1.0 : (is_foam ? 2.0 : 3.0);
+    vec3 average_velocity = velocity_sum / max(weight_sum, 0.000001);
 
     if (is_foam)
     {
@@ -220,6 +222,7 @@ void main(void)
 
     particle.position_and_scale = vec4(position, scale);
     particle.velocity_and_lifetime = vec4(velocity, lifetime);
+    particle.classification_data = vec4(particle_class, float(neighbor_count), 0.0, 0.0);
 
     if (lifetime > 0.0)
     {
