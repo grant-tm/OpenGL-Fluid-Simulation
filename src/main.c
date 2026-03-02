@@ -175,7 +175,7 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
         application->volume_density_settings.bounds_size = application->simulation_bounds_size;
         application->volume_density_settings.smoothing_radius = 0.2f;
 
-        application->whitewater_settings.maximum_particle_count = 1000u;
+        application->whitewater_settings.maximum_particle_count = 65536u;
         application->whitewater_settings.spawn_rate = 120.0f;
         application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
         application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
@@ -217,7 +217,7 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
         application->volume_density_settings.bounds_size = application->simulation_bounds_size;
         application->volume_density_settings.smoothing_radius = application->scale_model.smoothing_radius;
 
-        application->whitewater_settings.maximum_particle_count = 1000u;
+        application->whitewater_settings.maximum_particle_count = 8192u;
         application->whitewater_settings.spawn_rate = 120.0f;
         application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
         application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
