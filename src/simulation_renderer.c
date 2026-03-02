@@ -1042,7 +1042,9 @@ static void SimulationRenderer_DrawScreenFluid (
     SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_composite_query_identifiers[gpu_query_identifier_index]);
     if (screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED ||
         screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL ||
-        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH)
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ||
+        screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA)
     {
         glUseProgram(renderer->screen_fluid_debug_program_identifier);
         glUniform1i(renderer->screen_fluid_debug_texture_uniform, 0);
@@ -1050,12 +1052,16 @@ static void SimulationRenderer_DrawScreenFluid (
             renderer->screen_fluid_debug_mode_uniform,
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED ? 1 :
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL ? 2 :
-            3);
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ? 3 :
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ? 4 :
+            5);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(
             GL_TEXTURE_2D,
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED ||
-            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ?
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH ||
+            screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA ?
                 final_comp_texture_identifier :
                 renderer->screen_fluid_normal_texture_identifier);
         glDrawArrays(GL_TRIANGLES, 0, 3);

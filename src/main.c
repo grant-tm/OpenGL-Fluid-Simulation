@@ -509,6 +509,28 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == VK_OEM_MINUS)
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == VK_OEM_PLUS)
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
             if (wide_param == 'I')
             {
                 if (application != NULL)
@@ -817,7 +839,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, 0 smooth-depth, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
+    Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, 0 smooth-depth, - hard-depth, = depth-delta, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Whitewater: enabled with spawn/update modeled after Example Code.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
@@ -1350,6 +1372,8 @@ static const char *Application_GetScreenFluidVisualizationModeName(SimulationScr
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED: return "packed";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL: return "normal";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH: return "smooth depth";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_HARD_DEPTH: return "hard depth";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_DEPTH_DELTA: return "depth delta";
     }
 
     return "unknown";

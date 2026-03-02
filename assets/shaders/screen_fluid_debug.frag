@@ -54,5 +54,41 @@ void main(void)
         return;
     }
 
+    if (u_debug_mode == 4)
+    {
+        float hard_depth = sample_value.a;
+        if (hard_depth > 1000.0)
+        {
+            fragment_color = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float depth_display = exp(-hard_depth * 0.08);
+        fragment_color = vec4(vec3(depth_display), 1.0);
+        return;
+    }
+
+    if (u_debug_mode == 5)
+    {
+        float smooth_depth = sample_value.r;
+        float hard_depth = sample_value.a;
+        if (hard_depth > 1000.0)
+        {
+            fragment_color = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float depth_delta = (hard_depth - smooth_depth) * 40.0;
+        vec3 negative_color = vec3(0.10, 0.35, 0.95);
+        vec3 neutral_color = vec3(0.0);
+        vec3 positive_color = vec3(0.95, 0.30, 0.10);
+        vec3 depth_delta_color =
+            depth_delta < 0.0 ?
+                mix(neutral_color, negative_color, clamp(-depth_delta, 0.0, 1.0)) :
+                mix(neutral_color, positive_color, clamp(depth_delta, 0.0, 1.0));
+        fragment_color = vec4(depth_delta_color, 1.0);
+        return;
+    }
+
     fragment_color = vec4(1.0, 0.0, 1.0, 1.0);
 }
