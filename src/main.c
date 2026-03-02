@@ -152,7 +152,7 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
 
     if (parameter_profile == SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE)
     {
-        application->scale_model.particle_spacing = 0.1175f;
+        application->scale_model.particle_spacing = 0.11f;
         application->scale_model.smoothing_radius = 0.2f;
         application->scale_model.screen_fluid_thickness_particle_radius = 0.07f;
         application->scale_model.screen_fluid_depth_particle_radius = 0.10f;
@@ -762,7 +762,7 @@ static bool Application_InitializeSimulationView(Application *application)
 
     Application_ApplyParameterProfile(application, parameter_profile);
 
-    spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
+    spawn_box.center = Vec3_Create(-1.6f, 1.2f, -1.6f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
     spawn_box.particle_spacing = application->scale_model.particle_spacing;
     spawn_box.position_jitter_scale = 0.08f;
