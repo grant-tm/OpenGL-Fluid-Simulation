@@ -684,7 +684,9 @@ static void SimulationRenderer_DrawVolume (
 static void SimulationRenderer_DrawScreenFluid (
     SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers, Mat4 projection_matrix, Mat4 view_matrix,
     Mat4 inverse_view_matrix, Vec3 simulation_bounds_size, Vec3 camera_position,
-    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode, i32 viewport_width, i32 viewport_height)
+    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
+    SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode,
+    i32 viewport_width, i32 viewport_height)
 {
     Vec2 texel_size;
     Vec2 shadow_texel_size;
@@ -697,6 +699,7 @@ static void SimulationRenderer_DrawScreenFluid (
     const i32 blur_iteration_count = 5;
     const f32 blur_strength = 0.45f;
     const f32 blur_difference_strength = 3.7f;
+    u32 final_comp_texture_identifier = renderer->screen_fluid_comp_texture_identifier;
     if (!SimulationRenderer_EnsureScreenFluidTargets(renderer, viewport_width, viewport_height)) return;
     inverse_projection_matrix = SimulationRenderer_CreateInversePerspective(projection_matrix);
     light_matrices = SimulationRenderer_CreateLightMatrices(simulation_bounds_size);
@@ -807,6 +810,10 @@ static void SimulationRenderer_DrawScreenFluid (
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(renderer->screen_fluid_blur_program_identifier);
     glUniform1i(renderer->screen_fluid_blur_texture_uniform, 0);
+    glUniform1i(
+        renderer->screen_fluid_blur_filter_mode_uniform,
+        screen_fluid_smoothing_mode == SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN ? 1 :
+        (screen_fluid_smoothing_mode == SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D ? 2 : 0));
     glUniform1i(renderer->screen_fluid_blur_depth_texture_uniform, 1);
     glUniform2f(renderer->screen_fluid_blur_texel_size_uniform, texel_size.x, texel_size.y);
     glUniform1f(renderer->screen_fluid_blur_projection_scale_uniform, projection_matrix.elements[0]);
@@ -817,29 +824,46 @@ static void SimulationRenderer_DrawScreenFluid (
     glUniform1f(renderer->screen_fluid_blur_difference_strength_uniform, blur_difference_strength);
     glBindVertexArray(renderer->fullscreen_vao_identifier);
 
-    for (i32 blur_iteration_index = 0; blur_iteration_index < blur_iteration_count; blur_iteration_index++)
+    if (screen_fluid_smoothing_mode == SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier, 0);
         glDrawBuffer(GL_COLOR_ATTACHMENT0);
         glClear(GL_COLOR_BUFFER_BIT);
-        glUniform2f(renderer->screen_fluid_blur_direction_uniform, 1.0f, 0.0f);
+        glUniform2f(renderer->screen_fluid_blur_direction_uniform, 0.0f, 0.0f);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier);
         glDrawArrays(GL_TRIANGLES, 0, 3);
+        final_comp_texture_identifier = renderer->screen_fluid_comp_blur_texture_identifier;
+    }
+    else
+    {
+        for (i32 blur_iteration_index = 0; blur_iteration_index < blur_iteration_count; blur_iteration_index++)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier, 0);
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUniform2f(renderer->screen_fluid_blur_direction_uniform, 1.0f, 0.0f);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier, 0);
-        glDrawBuffer(GL_COLOR_ATTACHMENT0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUniform2f(renderer->screen_fluid_blur_direction_uniform, 0.0f, 1.0f);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+            glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier, 0);
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glUniform2f(renderer->screen_fluid_blur_direction_uniform, 0.0f, 1.0f);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
     }
 
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_normal_texture_identifier, 0);
@@ -851,7 +875,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glUniformMatrix4fv(renderer->screen_fluid_normal_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->screen_fluid_normal_inverse_projection_uniform, 1, GL_FALSE, inverse_projection_matrix.elements);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier);
+    glBindTexture(GL_TEXTURE_2D, final_comp_texture_identifier);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -868,7 +892,7 @@ static void SimulationRenderer_DrawScreenFluid (
         glBindTexture(
             GL_TEXTURE_2D,
             screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED ?
-                renderer->screen_fluid_comp_texture_identifier :
+                final_comp_texture_identifier :
                 renderer->screen_fluid_normal_texture_identifier);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glActiveTexture(GL_TEXTURE0);
@@ -892,7 +916,7 @@ static void SimulationRenderer_DrawScreenFluid (
             light_matrices.view_projection_matrix.elements);
         glUniform3f(renderer->screen_fluid_composite_bounds_size_uniform, simulation_bounds_size.x, simulation_bounds_size.y, simulation_bounds_size.z);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier);
+        glBindTexture(GL_TEXTURE_2D, final_comp_texture_identifier);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_depth_texture_identifier);
         glActiveTexture(GL_TEXTURE2);
@@ -1077,6 +1101,7 @@ void SimulationRenderer_Render (
     SimulationRenderMode render_mode,
     SimulationParticleVisualizationMode particle_visualization_mode,
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
+    SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode,
     f32 density_minimum,
     f32 density_maximum,
     f32 speed_minimum,
@@ -1119,6 +1144,7 @@ void SimulationRenderer_Render (
             simulation_bounds_size,
             camera_matrices.position,
             screen_fluid_visualization_mode,
+            screen_fluid_smoothing_mode,
             viewport_width,
             viewport_height);
     }

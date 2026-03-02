@@ -66,6 +66,7 @@ typedef struct Application
     SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode;
+    SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode;
     f32 density_visualization_minimum;
     f32 density_visualization_maximum;
 } Application;
@@ -96,6 +97,7 @@ static void Application_LogVolumeDensitySummary(Application *application);
 static const char *Application_GetRenderModeName(SimulationRenderMode render_mode);
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode);
 static const char *Application_GetScreenFluidVisualizationModeName(SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode);
+static const char *Application_GetScreenFluidSmoothingModeName(SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode);
 static void OpenGL_LogContextInfo(void);
 static void OpenGL_UpdateViewport(Application *application);
 static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds);
@@ -385,6 +387,29 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == 'G')
+            {
+                if (application != NULL)
+                {
+                    if (application->screen_fluid_smoothing_mode == SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL)
+                    {
+                        application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN;
+                    }
+                    else if (application->screen_fluid_smoothing_mode == SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN)
+                    {
+                        application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D;
+                    }
+                    else
+                    {
+                        application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL;
+                    }
+
+                    Base_LogInfo(
+                        "Screen fluid smoothing: %s",
+                        Application_GetScreenFluidSmoothingModeName(application->screen_fluid_smoothing_mode));
+                }
+                return 0;
+            }
             if (wide_param == '1')
             {
                 if (application != NULL)
@@ -590,6 +615,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->most_recent_frame_delta_time_seconds = 0.0f;
     application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
     application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
+    application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL;
     application->simulation_is_paused = false;
     application->simulation_single_step_requested = false;
     application->simulation_accumulator_seconds = 0.0f;
@@ -639,7 +665,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, 7 composite, 8 packed, 9 normals, K logs screen-fluid targets.");
+    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, 7 composite, 8 packed, 9 normals, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
@@ -820,6 +846,7 @@ static void Application_ResetSimulation(Application *application)
 {
     SimulationRenderMode previous_render_mode = application->render_mode;
     SimulationParticleVisualizationMode previous_visualization_mode = application->particle_visualization_mode;
+    SimulationScreenFluidSmoothingMode previous_smoothing_mode = application->screen_fluid_smoothing_mode;
 
     Application_ShutdownSimulationResources(application);
     application->simulation_accumulator_seconds = 0.0f;
@@ -840,6 +867,7 @@ static void Application_ResetSimulation(Application *application)
 
     application->render_mode = previous_render_mode;
     application->particle_visualization_mode = previous_visualization_mode;
+    application->screen_fluid_smoothing_mode = previous_smoothing_mode;
 
     Base_LogInfo("Simulation reset.");
 }
@@ -1141,6 +1169,18 @@ static const char *Application_GetScreenFluidVisualizationModeName(SimulationScr
     return "unknown";
 }
 
+static const char *Application_GetScreenFluidSmoothingModeName(SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode)
+{
+    switch (screen_fluid_smoothing_mode)
+    {
+        case SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL: return "bilateral";
+        case SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN: return "gaussian";
+        case SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D: return "bilateral2d";
+    }
+
+    return "unknown";
+}
+
 // == OpenGL ==========================================================================================================
 
 static void OpenGL_LogContextInfo(void)
@@ -1210,6 +1250,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         application->render_mode,
         application->particle_visualization_mode,
         application->screen_fluid_visualization_mode,
+        application->screen_fluid_smoothing_mode,
         application->density_visualization_minimum,
         application->density_visualization_maximum,
         application->velocity_visualization_minimum,

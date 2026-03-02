@@ -138,6 +138,13 @@ typedef enum SimulationScreenFluidVisualizationMode
     SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL = 2,
 } SimulationScreenFluidVisualizationMode;
 
+typedef enum SimulationScreenFluidSmoothingMode
+{
+    SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL = 0,
+    SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN = 1,
+    SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D = 2,
+} SimulationScreenFluidSmoothingMode;
+
 bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers);
 void SimulationRenderer_Shutdown (SimulationRenderer *renderer);
 void SimulationRenderer_UpdateCamera (SimulationCamera *camera, f32 delta_time_seconds);
@@ -151,6 +158,7 @@ void SimulationRenderer_Render (
     SimulationRenderMode render_mode,
     SimulationParticleVisualizationMode particle_visualization_mode,
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
+    SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode,
     f32 density_minimum,
     f32 density_maximum,
     f32 speed_minimum,
