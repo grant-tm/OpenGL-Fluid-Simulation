@@ -25,6 +25,7 @@ bool SimulationCollision_Initialize (SimulationCollision *collision)
     collision->particle_count_uniform = glGetUniformLocation(collision->collision_program_identifier, "u_particle_count");
     collision->bounds_size_uniform = glGetUniformLocation(collision->collision_program_identifier, "u_bounds_size");
     collision->collision_damping_uniform = glGetUniformLocation(collision->collision_program_identifier, "u_collision_damping");
+    collision->minimum_bounce_speed_uniform = glGetUniformLocation(collision->collision_program_identifier, "u_minimum_bounce_speed");
     return true;
 }
 
@@ -57,6 +58,7 @@ bool SimulationCollision_Run (
     glUniform1i(collision->particle_count_uniform, (i32) particle_buffers->particle_count);
     glUniform3f(collision->bounds_size_uniform, settings.bounds_size.x, settings.bounds_size.y, settings.bounds_size.z);
     glUniform1f(collision->collision_damping_uniform, settings.collision_damping);
+    glUniform1f(collision->minimum_bounce_speed_uniform, settings.minimum_bounce_speed);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->predicted_position_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, particle_buffers->velocity_buffer.identifier);
@@ -115,6 +117,7 @@ bool SimulationCollision_RunValidation (void)
     SimulationCollisionSettings settings = {0};
     settings.bounds_size = Vec3_Create(8.0f, 8.0f, 8.0f);
     settings.collision_damping = 0.5f;
+    settings.minimum_bounce_speed = 0.0f;
 
     bool run_success = SimulationCollision_Run(&collision, &particle_buffers, settings);
 

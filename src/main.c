@@ -78,10 +78,17 @@ typedef struct Application
     f32 simulation_time_seconds;
 } Application;
 
+typedef enum SimulationParameterProfile
+{
+    SIMULATION_PARAMETER_PROFILE_BASELINE = 0,
+    SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE = 1,
+} SimulationParameterProfile;
+
 // == Constants =======================================================================================================
 
 #define WINDOW_CLASS_NAME "FluidSimWindowClass"
 #define WINDOW_TITLE "FluidSim"
+#define DEFAULT_SIMULATION_PARAMETER_PROFILE SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE
 
 // == Forward Declarations ============================================================================================
 
@@ -91,6 +98,7 @@ static bool Win32_CreateWindowAndContext(Application *application, i32 client_wi
 static void Win32_DestroyWindowAndContext(Application *application);
 static bool Application_InitializeSimulationView(Application *application);
 static void Application_InitializeScaleModel(Application *application);
+static void Application_ApplyParameterProfile(Application *application, SimulationParameterProfile parameter_profile);
 static void Application_ShutdownSimulationResources(Application *application);
 static bool Application_InitializeSimulationResources(Application *application);
 static bool Application_RunInitializationWarmup(Application *application);
@@ -136,6 +144,101 @@ static void Application_InitializeScaleModel(Application *application)
         application->scale_model.smoothing_radius * blur_radius_to_smoothing_radius_ratio;
     application->scale_model.whitewater_billboard_scale =
         application->scale_model.particle_spacing * whitewater_scale_to_particle_spacing_ratio;
+}
+
+static void Application_ApplyParameterProfile(Application *application, SimulationParameterProfile parameter_profile)
+{
+    Base_Assert(application != NULL);
+
+    if (parameter_profile == SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE)
+    {
+        application->scale_model.particle_spacing = 0.1186f;
+        application->scale_model.smoothing_radius = 0.2f;
+        application->scale_model.screen_fluid_thickness_particle_radius = 0.07f;
+        application->scale_model.screen_fluid_depth_particle_radius = 0.10f;
+        application->scale_model.screen_fluid_blur_world_radius = 0.02f;
+        application->scale_model.whitewater_billboard_scale = 0.02f;
+
+        application->simulation_bounds_size = Vec3_Create(8.0f, 8.0f, 8.0f);
+        application->step_settings.gravity = -10.0f;
+        application->density_settings.smoothing_radius = 0.2f;
+        application->pressure_settings.smoothing_radius = 0.2f;
+        application->pressure_settings.target_density = 630.0f;
+        application->pressure_settings.pressure_multiplier = 288.0f;
+        application->pressure_settings.near_pressure_multiplier = 2.16f;
+        application->viscosity_settings.smoothing_radius = 0.2f;
+        application->viscosity_settings.viscosity_strength = 0.02f;
+        application->spatial_hash_settings.cell_size = 0.2f;
+        application->collision_settings.bounds_size = application->simulation_bounds_size;
+        application->collision_settings.collision_damping = 0.95f;
+        application->collision_settings.minimum_bounce_speed = 1.0f;
+        application->volume_density_settings.bounds_size = application->simulation_bounds_size;
+        application->volume_density_settings.smoothing_radius = 0.2f;
+
+        application->whitewater_settings.maximum_particle_count = 1000u;
+        application->whitewater_settings.spawn_rate = 120.0f;
+        application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
+        application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
+        application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
+        application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
+        application->whitewater_settings.kinetic_energy_minimum = 15.0f;
+        application->whitewater_settings.kinetic_energy_maximum = 30.0f;
+        application->whitewater_settings.gravity = application->step_settings.gravity;
+        application->whitewater_settings.target_density = application->pressure_settings.target_density;
+        application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
+        application->whitewater_settings.bubble_buoyancy = 1.4f;
+        application->whitewater_settings.spray_classify_maximum_neighbors = 5;
+        application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
+        application->whitewater_settings.bubble_scale = 0.3f;
+        application->whitewater_settings.bubble_scale_change_speed = 7.0f;
+        application->whitewater_settings.collision_damping = 0.10f;
+        application->whitewater_settings.bounds_size = application->simulation_bounds_size;
+        application->whitewater_settings.simulation_time_seconds = 0.0f;
+
+        Base_LogInfo("Parameter profile: example_reference");
+    }
+    else
+    {
+        Application_InitializeScaleModel(application);
+
+        application->simulation_bounds_size = Vec3_Create(8.0f, 8.0f, 8.0f);
+        application->step_settings.gravity = -9.8f;
+        application->density_settings.smoothing_radius = application->scale_model.smoothing_radius;
+        application->pressure_settings.smoothing_radius = application->scale_model.smoothing_radius;
+        application->pressure_settings.target_density = 6.0f;
+        application->pressure_settings.pressure_multiplier = 18.0f;
+        application->pressure_settings.near_pressure_multiplier = 8.0f;
+        application->viscosity_settings.smoothing_radius = application->scale_model.smoothing_radius;
+        application->viscosity_settings.viscosity_strength = 0.12f;
+        application->spatial_hash_settings.cell_size = application->scale_model.smoothing_radius;
+        application->collision_settings.bounds_size = application->simulation_bounds_size;
+        application->collision_settings.collision_damping = 0.85f;
+        application->collision_settings.minimum_bounce_speed = 0.0f;
+        application->volume_density_settings.bounds_size = application->simulation_bounds_size;
+        application->volume_density_settings.smoothing_radius = application->scale_model.smoothing_radius;
+
+        application->whitewater_settings.maximum_particle_count = 1000u;
+        application->whitewater_settings.spawn_rate = 120.0f;
+        application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
+        application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
+        application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
+        application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
+        application->whitewater_settings.kinetic_energy_minimum = 15.0f;
+        application->whitewater_settings.kinetic_energy_maximum = 30.0f;
+        application->whitewater_settings.gravity = application->step_settings.gravity;
+        application->whitewater_settings.target_density = application->pressure_settings.target_density;
+        application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
+        application->whitewater_settings.bubble_buoyancy = 1.4f;
+        application->whitewater_settings.spray_classify_maximum_neighbors = 5;
+        application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
+        application->whitewater_settings.bubble_scale = 0.3f;
+        application->whitewater_settings.bubble_scale_change_speed = 7.0f;
+        application->whitewater_settings.collision_damping = 0.10f;
+        application->whitewater_settings.bounds_size = application->simulation_bounds_size;
+        application->whitewater_settings.simulation_time_seconds = 0.0f;
+
+        Base_LogInfo("Parameter profile: baseline");
+    }
 }
 
 int main(void)
@@ -621,8 +724,10 @@ static void Win32_DestroyWindowAndContext(Application *application)
 
 static bool Application_InitializeSimulationView(Application *application)
 {
+    const SimulationParameterProfile parameter_profile = DEFAULT_SIMULATION_PARAMETER_PROFILE;
     SimulationSpawnBox spawn_box = {0};
-    Application_InitializeScaleModel(application);
+
+    Application_ApplyParameterProfile(application, parameter_profile);
 
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
@@ -657,48 +762,17 @@ static bool Application_InitializeSimulationView(Application *application)
     application->simulation_accumulator_seconds = 0.0f;
     application->fixed_simulation_delta_time_seconds = 1.0f / 60.0f;
     application->maximum_frame_delta_time_seconds = 1.0f / 15.0f;
-    application->step_settings.gravity = -9.8f;
     application->step_settings.prediction_factor = 1.0f / 120.0f;
     application->step_settings.time_scale = 1.0f;
     application->step_settings.maximum_delta_time = 1.0f / 60.0f;
-    application->step_settings.iterations_per_frame = 3;
-    application->density_settings.smoothing_radius = application->scale_model.smoothing_radius;
-    application->collision_settings.bounds_size = application->simulation_bounds_size;
-    application->collision_settings.collision_damping = 0.85f;
-    application->pressure_settings.smoothing_radius = application->scale_model.smoothing_radius;
-    application->pressure_settings.target_density = 6.0f;
-    application->pressure_settings.pressure_multiplier = 18.0f;
-    application->pressure_settings.near_pressure_multiplier = 8.0f;
-    application->viscosity_settings.smoothing_radius = application->scale_model.smoothing_radius;
-    application->viscosity_settings.viscosity_strength = 0.12f;
-    application->spatial_hash_settings.cell_size = application->scale_model.smoothing_radius;
-    application->volume_density_settings.bounds_size = application->simulation_bounds_size;
-    application->volume_density_settings.smoothing_radius = application->scale_model.smoothing_radius;
+    application->step_settings.iterations_per_frame =
+        parameter_profile == SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE ? 4 : 3;
     application->volume_density_settings.resolution_x = 24;
     application->volume_density_settings.resolution_y = 24;
     application->volume_density_settings.resolution_z = 24;
     application->volume_density_settings.density_scale = 1.0f;
-    application->whitewater_settings.maximum_particle_count = 1000u;
-    application->whitewater_settings.spawn_rate = 120.0f;
-    application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
-    application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
-    application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
-    application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
-    application->whitewater_settings.kinetic_energy_minimum = 15.0f;
-    application->whitewater_settings.kinetic_energy_maximum = 30.0f;
-    application->whitewater_settings.target_density = application->pressure_settings.target_density;
-    application->whitewater_settings.smoothing_radius = application->scale_model.smoothing_radius;
-    application->whitewater_settings.gravity = application->step_settings.gravity;
     application->whitewater_settings.delta_time_seconds = application->fixed_simulation_delta_time_seconds;
-    application->whitewater_settings.bubble_buoyancy = 1.4f;
-    application->whitewater_settings.spray_classify_maximum_neighbors = 5;
-    application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
-    application->whitewater_settings.bubble_scale = 0.3f;
-    application->whitewater_settings.bubble_scale_change_speed = 7.0f;
-    application->whitewater_settings.collision_damping = 0.10f;
-    application->whitewater_settings.bounds_size = application->simulation_bounds_size;
-    application->whitewater_settings.simulation_time_seconds = 0.0f;
-    application->pipeline_settings.substeps_per_simulation_step = 3;
+    application->pipeline_settings.substeps_per_simulation_step = application->step_settings.iterations_per_frame;
     application->pipeline_settings.time_scale = 1.0f;
     application->pipeline_settings.step_settings = application->step_settings;
     application->pipeline_settings.spatial_hash_settings = application->spatial_hash_settings;
@@ -715,6 +789,8 @@ static bool Application_InitializeSimulationView(Application *application)
         application->scale_model.screen_fluid_depth_particle_radius,
         application->scale_model.screen_fluid_blur_world_radius,
         application->scale_model.whitewater_billboard_scale);
+    Base_LogInfo(
+        "Parameter profile switch: set DEFAULT_SIMULATION_PARAMETER_PROFILE in src/main.c to baseline or example.");
 
     if (!Application_InitializeSimulationResources(application))
     {

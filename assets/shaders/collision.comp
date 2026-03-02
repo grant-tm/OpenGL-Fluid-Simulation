@@ -15,6 +15,17 @@ layout(std430, binding = 2) buffer ParticleVelocities
 uniform int u_particle_count;
 uniform vec3 u_bounds_size;
 uniform float u_collision_damping;
+uniform float u_minimum_bounce_speed;
+
+float ResolveCollisionVelocity(float velocity_component)
+{
+    if (abs(velocity_component) <= u_minimum_bounce_speed)
+    {
+        return 0.0;
+    }
+
+    return -velocity_component * u_collision_damping;
+}
 
 void main(void)
 {
@@ -31,34 +42,34 @@ void main(void)
     if (position.x < -half_size.x)
     {
         position.x = -half_size.x;
-        velocity.x *= -u_collision_damping;
+        velocity.x = ResolveCollisionVelocity(velocity.x);
     }
     else if (position.x > half_size.x)
     {
         position.x = half_size.x;
-        velocity.x *= -u_collision_damping;
+        velocity.x = ResolveCollisionVelocity(velocity.x);
     }
 
     if (position.y < -half_size.y)
     {
         position.y = -half_size.y;
-        velocity.y *= -u_collision_damping;
+        velocity.y = ResolveCollisionVelocity(velocity.y);
     }
     else if (position.y > half_size.y)
     {
         position.y = half_size.y;
-        velocity.y *= -u_collision_damping;
+        velocity.y = ResolveCollisionVelocity(velocity.y);
     }
 
     if (position.z < -half_size.z)
     {
         position.z = -half_size.z;
-        velocity.z *= -u_collision_damping;
+        velocity.z = ResolveCollisionVelocity(velocity.z);
     }
     else if (position.z > half_size.z)
     {
         position.z = half_size.z;
-        velocity.z *= -u_collision_damping;
+        velocity.z = ResolveCollisionVelocity(velocity.z);
     }
 
     predicted_positions[particle_index].xyz = position;

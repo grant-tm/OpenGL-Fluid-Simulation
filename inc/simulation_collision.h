@@ -7,6 +7,7 @@ typedef struct SimulationCollisionSettings
 {
     Vec3 bounds_size;
     f32 collision_damping;
+    f32 minimum_bounce_speed;
 } SimulationCollisionSettings;
 
 typedef struct SimulationCollision
@@ -15,6 +16,7 @@ typedef struct SimulationCollision
     i32 particle_count_uniform;
     i32 bounds_size_uniform;
     i32 collision_damping_uniform;
+    i32 minimum_bounce_speed_uniform;
 } SimulationCollision;
 
 bool SimulationCollision_Initialize (SimulationCollision *collision);

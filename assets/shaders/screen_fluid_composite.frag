@@ -99,6 +99,11 @@ void main(void)
         discard;
     }
 
+    if (smooth_thickness + hard_thickness * 0.35 <= 0.030)
+    {
+        discard;
+    }
+
     foam_surface_visibility =
         foam *
         (
