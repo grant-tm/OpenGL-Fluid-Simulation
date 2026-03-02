@@ -138,7 +138,7 @@ void main(void)
     float view_normal_alignment = clamp(dot(incident_direction, world_normal), 0.0, 1.0);
     float fresnel_factor = 0.02 + 0.98 * pow(1.0 - view_normal_alignment, 5.0);
 
-    float refraction_offset_scale = 0.055;
+    float refraction_offset_scale = 0.030;
     vec2 refraction_offset = world_normal.xy * smooth_thickness * refraction_offset_scale;
     vec2 refracted_texture_coordinate = clamp(v_texture_coordinate + refraction_offset, vec2(0.001), vec2(0.999));
     vec3 scene_color = texture(u_scene_texture, refracted_texture_coordinate).rgb;
@@ -174,14 +174,14 @@ void main(void)
     vec3 light_direction = normalize(vec3(-0.45, 0.72, 0.52));
     vec3 half_vector = normalize(light_direction + incident_direction);
     float diffuse_light = max(dot(world_normal, light_direction), 0.0);
-    float specular_light = pow(max(dot(world_normal, half_vector), 0.0), 96.0);
-    float grazing_light = pow(1.0 - view_normal_alignment, 2.5);
+    float specular_light = pow(max(dot(world_normal, half_vector), 0.0), 72.0);
+    float grazing_light = pow(1.0 - view_normal_alignment, 2.0);
 
     reflected_color = max(reflected_color, vec3(0.18, 0.22, 0.28));
     reflected_color = reflected_color * (1.0 - foam_surface_visibility) + vec3(foam_surface_visibility);
     vec3 final_color = mix(refracted_color, reflected_color, fresnel_factor);
-    final_color += vec3(0.85, 0.93, 1.0) * specular_light * 0.35;
-    final_color += vec3(0.06, 0.10, 0.14) * diffuse_light * grazing_light;
+    final_color += vec3(0.85, 0.93, 1.0) * specular_light * 0.18;
+    final_color += vec3(0.04, 0.07, 0.10) * diffuse_light * grazing_light * 0.55;
     final_color += shallow_water_color * (0.18 + smooth_thickness * 0.10);
 
     float edge_foam_factor = clamp((hard_thickness - smooth_thickness) * 2.8, 0.0, 1.0);

@@ -152,7 +152,7 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
 
     if (parameter_profile == SIMULATION_PARAMETER_PROFILE_EXAMPLE_REFERENCE)
     {
-        application->scale_model.particle_spacing = 0.1186f;
+        application->scale_model.particle_spacing = 0.1175f;
         application->scale_model.smoothing_radius = 0.2f;
         application->scale_model.screen_fluid_thickness_particle_radius = 0.07f;
         application->scale_model.screen_fluid_depth_particle_radius = 0.10f;

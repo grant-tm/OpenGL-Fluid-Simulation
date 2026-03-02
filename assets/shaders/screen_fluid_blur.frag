@@ -35,9 +35,11 @@ void main(void)
     vec2 offset = u_blur_direction * u_texel_size;
     float weighted_depth_sum = 0.0;
     float weighted_thickness_sum = 0.0;
-    float total_weight = 0.0;
+    float total_depth_weight = 0.0;
+    float total_thickness_weight = 0.0;
     int radius_in_pixels;
     float sigma;
+    float depth_sigma;
     bool use_gaussian_smoothing = (u_filter_mode == 1);
     bool use_bilateral_2d_smoothing = (u_filter_mode == 2);
 
@@ -62,6 +64,7 @@ void main(void)
     if (use_bilateral_2d_smoothing)
     {
         sigma = max(0.0001, float(radius_in_pixels) * max(0.001, u_strength));
+        depth_sigma = sigma * 1.75;
 
         for (int sample_offset_x = -32; sample_offset_x <= 32; sample_offset_x++)
         {
@@ -70,10 +73,12 @@ void main(void)
                 vec2 sample_coordinate;
                 vec4 sample_value;
                 float sample_hard_depth;
-                float spatial_weight;
+                float thickness_spatial_weight;
+                float depth_spatial_weight;
                 float depth_difference;
                 float depth_weight;
-                float total_sample_weight;
+                float depth_sample_weight;
+                float thickness_sample_weight;
 
                 if (abs(sample_offset_x) > radius_in_pixels || abs(sample_offset_y) > radius_in_pixels)
                 {
@@ -89,13 +94,16 @@ void main(void)
                     continue;
                 }
 
-                spatial_weight = CalculateGaussianWeight2D(sample_offset_x, sample_offset_y, sigma);
+                thickness_spatial_weight = CalculateGaussianWeight2D(sample_offset_x, sample_offset_y, sigma);
+                depth_spatial_weight = CalculateGaussianWeight2D(sample_offset_x, sample_offset_y, depth_sigma);
                 depth_difference = center_hard_depth - sample_hard_depth;
                 depth_weight = exp(-(depth_difference * depth_difference) * u_difference_strength);
-                total_sample_weight = spatial_weight * depth_weight;
-                weighted_depth_sum += sample_value.r * total_sample_weight;
-                weighted_thickness_sum += sample_value.g * total_sample_weight;
-                total_weight += total_sample_weight;
+                depth_sample_weight = depth_spatial_weight * depth_weight;
+                thickness_sample_weight = thickness_spatial_weight * depth_weight;
+                weighted_depth_sum += sample_value.r * depth_sample_weight;
+                weighted_thickness_sum += sample_value.g * thickness_sample_weight;
+                total_depth_weight += depth_sample_weight;
+                total_thickness_weight += thickness_sample_weight;
             }
         }
     }
@@ -103,14 +111,17 @@ void main(void)
     {
         float fractional_radius = max(0.0, float(radius_in_pixels) - radius_float);
         sigma = max(0.0001, (float(radius_in_pixels) - fractional_radius) / (6.0 * max(0.001, u_strength)));
+        depth_sigma = sigma * (use_gaussian_smoothing ? 2.00 : 1.45);
 
         for (int sample_offset = -32; sample_offset <= 32; sample_offset++)
         {
             vec2 sample_coordinate = v_texture_coordinate + offset * float(sample_offset);
             vec4 sample_value = texture(u_source_texture, sample_coordinate);
             float sample_hard_depth = texture(u_depth_texture, sample_coordinate).r;
-            float spatial_weight;
-            float total_sample_weight;
+            float thickness_spatial_weight;
+            float depth_spatial_weight;
+            float depth_sample_weight;
+            float thickness_sample_weight;
 
             if (abs(sample_offset) > radius_in_pixels)
             {
@@ -122,24 +133,29 @@ void main(void)
                 continue;
             }
 
-            spatial_weight = exp(-(float(sample_offset * sample_offset)) / (2.0 * sigma * sigma));
+            thickness_spatial_weight = exp(-(float(sample_offset * sample_offset)) / (2.0 * sigma * sigma));
+            depth_spatial_weight = exp(-(float(sample_offset * sample_offset)) / (2.0 * depth_sigma * depth_sigma));
             if (use_gaussian_smoothing)
             {
-                total_sample_weight = spatial_weight;
+                depth_sample_weight = depth_spatial_weight;
+                thickness_sample_weight = thickness_spatial_weight;
             }
             else
             {
                 float depth_difference = center_hard_depth - sample_hard_depth;
                 float depth_weight = exp(-(depth_difference * depth_difference) * u_difference_strength);
-                total_sample_weight = spatial_weight * depth_weight;
+                depth_sample_weight = depth_spatial_weight * depth_weight;
+                thickness_sample_weight = thickness_spatial_weight * depth_weight;
             }
-            weighted_depth_sum += sample_value.r * total_sample_weight;
-            weighted_thickness_sum += sample_value.g * total_sample_weight;
-            total_weight += total_sample_weight;
+            weighted_depth_sum += sample_value.r * depth_sample_weight;
+            weighted_thickness_sum += sample_value.g * thickness_sample_weight;
+            total_depth_weight += depth_sample_weight;
+            total_thickness_weight += thickness_sample_weight;
         }
     }
 
-    float blurred_depth = (total_weight > 0.0) ? (weighted_depth_sum / total_weight) : original_sample.r;
-    float blurred_thickness = (total_weight > 0.0) ? (weighted_thickness_sum / total_weight) : original_sample.g;
+    float blurred_depth = (total_depth_weight > 0.0) ? (weighted_depth_sum / total_depth_weight) : original_sample.r;
+    float blurred_thickness =
+        (total_thickness_weight > 0.0) ? (weighted_thickness_sum / total_thickness_weight) : original_sample.g;
     fragment_color = vec4(blurred_depth, blurred_thickness, original_sample.b, center_hard_depth);
 }
