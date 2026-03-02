@@ -1,0 +1,44 @@
+#version 430 core
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer InputItemsBuffer
+{
+    uint input_items[];
+};
+
+layout(std430, binding = 1) readonly buffer InputKeysBuffer
+{
+    uint input_keys[];
+};
+
+layout(std430, binding = 2) buffer SortedItemsBuffer
+{
+    uint sorted_items[];
+};
+
+layout(std430, binding = 3) buffer SortedKeysBuffer
+{
+    uint sorted_keys[];
+};
+
+layout(std430, binding = 4) buffer CountsBuffer
+{
+    uint counts[];
+};
+
+uniform int u_particle_count;
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    uint key = input_keys[particle_index];
+    uint sorted_index = atomicAdd(counts[key], 1u);
+    sorted_items[sorted_index] = input_items[particle_index];
+    sorted_keys[sorted_index] = key;
+}

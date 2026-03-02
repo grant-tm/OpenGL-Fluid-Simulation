@@ -1,0 +1,48 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer PositionsBuffer
+{
+    vec4 positions[];
+};
+
+layout(std430, binding = 1) buffer PredictedPositionsBuffer
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 2) buffer VelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 3) readonly buffer SortTargetPositionsBuffer
+{
+    vec4 sort_target_positions[];
+};
+
+layout(std430, binding = 4) readonly buffer SortTargetPredictedPositionsBuffer
+{
+    vec4 sort_target_predicted_positions[];
+};
+
+layout(std430, binding = 5) readonly buffer SortTargetVelocitiesBuffer
+{
+    vec4 sort_target_velocities[];
+};
+
+uniform int u_particle_count;
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    positions[particle_index] = sort_target_positions[particle_index];
+    predicted_positions[particle_index] = sort_target_predicted_positions[particle_index];
+    velocities[particle_index] = sort_target_velocities[particle_index];
+}

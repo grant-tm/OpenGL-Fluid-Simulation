@@ -1,130 +1,107 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "opengl_helpers.h"
 #include "simulation_reorder.h"
 
-static bool SimulationReorder_ReadParticleData (
-    SimulationParticleBuffers *particle_buffers,
-    Vec4 *positions,
-    Vec4 *predicted_positions,
-    Vec4 *velocities,
-    u32 *sorted_indices)
+typedef struct SimulationReorderState
 {
-    u32 particle_count = particle_buffers->particle_count;
+    bool is_initialized;
+    u32 reorder_program_identifier;
+    u32 copyback_program_identifier;
+    i32 reorder_particle_count_uniform;
+    i32 copyback_particle_count_uniform;
+} SimulationReorderState;
 
-    return
-        OpenGL_ReadBuffer(&particle_buffers->position_buffer, positions, (i32) (particle_count * sizeof(Vec4))) &&
-        OpenGL_ReadBuffer(&particle_buffers->predicted_position_buffer, predicted_positions, (i32) (particle_count * sizeof(Vec4))) &&
-        OpenGL_ReadBuffer(&particle_buffers->velocity_buffer, velocities, (i32) (particle_count * sizeof(Vec4))) &&
-        OpenGL_ReadBuffer(&particle_buffers->spatial_index_buffer, sorted_indices, (i32) (particle_count * sizeof(u32)));
-}
+static SimulationReorderState simulation_reorder_state = {0};
 
-static bool SimulationReorder_UploadParticleData (
-    SimulationParticleBuffers *particle_buffers,
-    Vec4 *positions,
-    Vec4 *predicted_positions,
-    Vec4 *velocities)
+static bool SimulationReorder_EnsureInitialized (void)
 {
-    u32 particle_count = particle_buffers->particle_count;
+    if (simulation_reorder_state.is_initialized)
+    {
+        return true;
+    }
 
-    return
-        OpenGL_UpdateBuffer(&particle_buffers->sort_target_position_buffer, 0, (i32) (particle_count * sizeof(Vec4)), positions) &&
-        OpenGL_UpdateBuffer(&particle_buffers->sort_target_predicted_position_buffer, 0, (i32) (particle_count * sizeof(Vec4)), predicted_positions) &&
-        OpenGL_UpdateBuffer(&particle_buffers->sort_target_velocity_buffer, 0, (i32) (particle_count * sizeof(Vec4)), velocities) &&
-        OpenGL_UpdateBuffer(&particle_buffers->position_buffer, 0, (i32) (particle_count * sizeof(Vec4)), positions) &&
-        OpenGL_UpdateBuffer(&particle_buffers->predicted_position_buffer, 0, (i32) (particle_count * sizeof(Vec4)), predicted_positions) &&
-        OpenGL_UpdateBuffer(&particle_buffers->velocity_buffer, 0, (i32) (particle_count * sizeof(Vec4)), velocities);
+    if (!OpenGL_LoadComputeFunctions())
+    {
+        return false;
+    }
+
+    simulation_reorder_state.reorder_program_identifier =
+        OpenGL_CreateComputeProgramFromFile("assets/shaders/particle_reorder.comp");
+    simulation_reorder_state.copyback_program_identifier =
+        OpenGL_CreateComputeProgramFromFile("assets/shaders/particle_reorder_copyback.comp");
+
+    if (simulation_reorder_state.reorder_program_identifier == 0 ||
+        simulation_reorder_state.copyback_program_identifier == 0)
+    {
+        Base_LogError("Failed to create GPU reorder compute programs.");
+        if (simulation_reorder_state.reorder_program_identifier != 0)
+        {
+            glDeleteProgram(simulation_reorder_state.reorder_program_identifier);
+        }
+        if (simulation_reorder_state.copyback_program_identifier != 0)
+        {
+            glDeleteProgram(simulation_reorder_state.copyback_program_identifier);
+        }
+        memset(&simulation_reorder_state, 0, sizeof(simulation_reorder_state));
+        return false;
+    }
+
+    simulation_reorder_state.reorder_particle_count_uniform =
+        glGetUniformLocation(simulation_reorder_state.reorder_program_identifier, "u_particle_count");
+    simulation_reorder_state.copyback_particle_count_uniform =
+        glGetUniformLocation(simulation_reorder_state.copyback_program_identifier, "u_particle_count");
+    simulation_reorder_state.is_initialized = true;
+    return true;
 }
 
 bool SimulationReorder_Run (SimulationParticleBuffers *particle_buffers)
 {
     Base_Assert(particle_buffers != NULL);
 
+    if (!SimulationReorder_EnsureInitialized())
+    {
+        return false;
+    }
+
     u32 particle_count = particle_buffers->particle_count;
-    if (particle_count == 0) return false;
+    if (particle_count == 0u) return false;
 
-    Vec4 *positions = (Vec4 *) calloc(particle_count, sizeof(Vec4));
-    Vec4 *predicted_positions = (Vec4 *) calloc(particle_count, sizeof(Vec4));
-    Vec4 *velocities = (Vec4 *) calloc(particle_count, sizeof(Vec4));
-    u32 *sorted_indices = (u32 *) calloc(particle_count, sizeof(u32));
+    u32 workgroup_count_x = (particle_count + 63u) / 64u;
 
-    Vec4 *sorted_positions = (Vec4 *) calloc(particle_count, sizeof(Vec4));
-    Vec4 *sorted_predicted_positions = (Vec4 *) calloc(particle_count, sizeof(Vec4));
-    Vec4 *sorted_velocities = (Vec4 *) calloc(particle_count, sizeof(Vec4));
+    glUseProgram(simulation_reorder_state.reorder_program_identifier);
+    glUniform1i(simulation_reorder_state.reorder_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->predicted_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, particle_buffers->velocity_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, particle_buffers->spatial_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, particle_buffers->sort_target_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, particle_buffers->sort_target_predicted_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, particle_buffers->sort_target_velocity_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
 
-    if (positions == NULL ||
-        predicted_positions == NULL ||
-        velocities == NULL ||
-        sorted_indices == NULL ||
-        sorted_positions == NULL ||
-        sorted_predicted_positions == NULL ||
-        sorted_velocities == NULL)
-    {
-        free(positions);
-        free(predicted_positions);
-        free(velocities);
-        free(sorted_indices);
-        free(sorted_positions);
-        free(sorted_predicted_positions);
-        free(sorted_velocities);
-        Base_LogError("Failed to allocate particle reorder buffers.");
-        return false;
-    }
+    glUseProgram(simulation_reorder_state.copyback_program_identifier);
+    glUniform1i(simulation_reorder_state.copyback_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->predicted_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, particle_buffers->velocity_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, particle_buffers->sort_target_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, particle_buffers->sort_target_predicted_position_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, particle_buffers->sort_target_velocity_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 
-    bool read_success = SimulationReorder_ReadParticleData(
-        particle_buffers,
-        positions,
-        predicted_positions,
-        velocities,
-        sorted_indices);
-
-    if (!read_success)
-    {
-        free(positions);
-        free(predicted_positions);
-        free(velocities);
-        free(sorted_indices);
-        free(sorted_positions);
-        free(sorted_predicted_positions);
-        free(sorted_velocities);
-        return false;
-    }
-
-    for (u32 sorted_index = 0; sorted_index < particle_count; sorted_index++)
-    {
-        u32 source_index = sorted_indices[sorted_index];
-        if (source_index >= particle_count)
-        {
-            free(positions);
-            free(predicted_positions);
-            free(velocities);
-            free(sorted_indices);
-            free(sorted_positions);
-            free(sorted_predicted_positions);
-            free(sorted_velocities);
-            Base_LogError("Particle reorder encountered an out-of-range source index.");
-            return false;
-        }
-
-        sorted_positions[sorted_index] = positions[source_index];
-        sorted_predicted_positions[sorted_index] = predicted_positions[source_index];
-        sorted_velocities[sorted_index] = velocities[source_index];
-    }
-
-    bool upload_success = SimulationReorder_UploadParticleData(
-        particle_buffers,
-        sorted_positions,
-        sorted_predicted_positions,
-        sorted_velocities);
-
-    free(positions);
-    free(predicted_positions);
-    free(velocities);
-    free(sorted_indices);
-    free(sorted_positions);
-    free(sorted_predicted_positions);
-    free(sorted_velocities);
-    return upload_success;
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
+    glUseProgram(0);
+    return true;
 }
 
 bool SimulationReorder_RunValidation (void)

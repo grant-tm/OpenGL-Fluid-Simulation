@@ -4,88 +4,203 @@
 #include "opengl_helpers.h"
 #include "simulation_spatial_hash.h"
 
-typedef struct SpatialKeyIndexPair
-{
-    u32 key;
-    u32 hash;
-    u32 index;
-} SpatialKeyIndexPair;
+#define SIMULATION_SORT_THREAD_GROUP_SIZE 256u
+#define SIMULATION_SCAN_ITEMS_PER_GROUP (SIMULATION_SORT_THREAD_GROUP_SIZE * 2u)
 
-static int SimulationSpatialHash_ComparePairs (const void *left_value, const void *right_value)
+static u32 SimulationSpatialHash_CeilDivideU32 (u32 numerator, u32 denominator)
 {
-    const SpatialKeyIndexPair *left_pair = (const SpatialKeyIndexPair *) left_value;
-    const SpatialKeyIndexPair *right_pair = (const SpatialKeyIndexPair *) right_value;
-
-    if (left_pair->key < right_pair->key) return -1;
-    if (left_pair->key > right_pair->key) return 1;
-    if (left_pair->hash < right_pair->hash) return -1;
-    if (left_pair->hash > right_pair->hash) return 1;
-    if (left_pair->index < right_pair->index) return -1;
-    if (left_pair->index > right_pair->index) return 1;
-    return 0;
+    Base_Assert(denominator != 0u);
+    return (numerator + denominator - 1u) / denominator;
 }
 
-static bool SimulationSpatialHash_SortAndUpload (
-    SimulationParticleBuffers *particle_buffers,
-    u32 *unsorted_hashes,
-    u32 *unsorted_keys,
-    u32 *unsorted_indices)
+static bool SimulationSpatialHash_CreateTemporaryBuffer (OpenGLBuffer *buffer, u32 element_count)
 {
-    u32 particle_count = particle_buffers->particle_count;
-    SpatialKeyIndexPair *sorted_pairs = (SpatialKeyIndexPair *) calloc(particle_count, sizeof(SpatialKeyIndexPair));
-    u32 *sorted_hashes = (u32 *) calloc(particle_count, sizeof(u32));
-    u32 *sorted_keys = (u32 *) calloc(particle_count, sizeof(u32));
-    u32 *sorted_indices = (u32 *) calloc(particle_count, sizeof(u32));
-    u32 *offsets = (u32 *) malloc((size_t) particle_count * sizeof(u32));
+    Base_Assert(buffer != NULL);
+    return OpenGL_CreateBuffer(
+        buffer,
+        GL_SHADER_STORAGE_BUFFER,
+        (i32) (element_count * sizeof(u32)),
+        NULL,
+        GL_DYNAMIC_DRAW);
+}
 
-    if (sorted_pairs == NULL || sorted_hashes == NULL || sorted_keys == NULL || sorted_indices == NULL || offsets == NULL)
+static bool SimulationSpatialHash_EnsureTemporaryBuffers (
+    SimulationSpatialHash *spatial_hash,
+    u32 particle_count)
+{
+    Base_Assert(spatial_hash != NULL);
+
+    if (spatial_hash->particle_capacity == particle_count &&
+        spatial_hash->group_sum_capacity >= SimulationSpatialHash_CeilDivideU32(particle_count, SIMULATION_SCAN_ITEMS_PER_GROUP) &&
+        spatial_hash->sorted_key_buffer.identifier != 0 &&
+        spatial_hash->sorted_index_buffer.identifier != 0 &&
+        spatial_hash->sorted_hash_buffer.identifier != 0 &&
+        spatial_hash->counts_buffer.identifier != 0 &&
+        spatial_hash->group_sums_buffer.identifier != 0 &&
+        spatial_hash->group_sums_scratch_buffer.identifier != 0)
     {
-        free(sorted_pairs);
-        free(sorted_hashes);
-        free(sorted_keys);
-        free(sorted_indices);
-        free(offsets);
-        Base_LogError("Failed to allocate spatial hash sorting buffers.");
+        return true;
+    }
+
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_key_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_index_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_hash_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->counts_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->group_sums_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->group_sums_scratch_buffer);
+    spatial_hash->particle_capacity = 0u;
+    spatial_hash->group_sum_capacity = 0u;
+
+    u32 group_sum_count = SimulationSpatialHash_CeilDivideU32(particle_count, SIMULATION_SCAN_ITEMS_PER_GROUP);
+    if (group_sum_count == 0u)
+    {
+        group_sum_count = 1u;
+    }
+
+    u32 group_sum_scratch_count = SimulationSpatialHash_CeilDivideU32(group_sum_count, SIMULATION_SCAN_ITEMS_PER_GROUP);
+    if (group_sum_scratch_count == 0u)
+    {
+        group_sum_scratch_count = 1u;
+    }
+
+    bool create_success =
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->sorted_key_buffer, particle_count) &&
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->sorted_index_buffer, particle_count) &&
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->sorted_hash_buffer, particle_count) &&
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->counts_buffer, particle_count) &&
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->group_sums_buffer, group_sum_count) &&
+        SimulationSpatialHash_CreateTemporaryBuffer(&spatial_hash->group_sums_scratch_buffer, group_sum_scratch_count);
+
+    if (!create_success)
+    {
+        Base_LogError("Failed to allocate GPU spatial hash temporary buffers.");
+        OpenGL_DestroyBuffer(&spatial_hash->sorted_key_buffer);
+        OpenGL_DestroyBuffer(&spatial_hash->sorted_index_buffer);
+        OpenGL_DestroyBuffer(&spatial_hash->sorted_hash_buffer);
+        OpenGL_DestroyBuffer(&spatial_hash->counts_buffer);
+        OpenGL_DestroyBuffer(&spatial_hash->group_sums_buffer);
+        OpenGL_DestroyBuffer(&spatial_hash->group_sums_scratch_buffer);
         return false;
     }
 
-    for (u32 particle_index = 0; particle_index < particle_count; particle_index++)
+    spatial_hash->particle_capacity = particle_count;
+    spatial_hash->group_sum_capacity = group_sum_count;
+    return true;
+}
+
+static bool SimulationSpatialHash_RunExclusiveScan (
+    SimulationSpatialHash *spatial_hash,
+    OpenGLBuffer *elements_buffer,
+    u32 item_count)
+{
+    Base_Assert(spatial_hash != NULL);
+    Base_Assert(elements_buffer != NULL);
+
+    if (item_count == 0u)
     {
-        sorted_pairs[particle_index].key = unsorted_keys[particle_index];
-        sorted_pairs[particle_index].hash = unsorted_hashes[particle_index];
-        sorted_pairs[particle_index].index = unsorted_indices[particle_index];
-        offsets[particle_index] = particle_count;
+        return true;
     }
 
-    qsort(sorted_pairs, particle_count, sizeof(SpatialKeyIndexPair), SimulationSpatialHash_ComparePairs);
+    u32 group_count = SimulationSpatialHash_CeilDivideU32(item_count, SIMULATION_SCAN_ITEMS_PER_GROUP);
 
-    for (u32 sorted_index = 0; sorted_index < particle_count; sorted_index++)
+    glUseProgram(spatial_hash->scan_block_program_identifier);
+    glUniform1i(spatial_hash->scan_item_count_uniform, (i32) item_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, elements_buffer->identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->group_sums_buffer.identifier);
+    OpenGL_DispatchCompute(group_count, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    if (group_count > 1u)
     {
-        u32 key = sorted_pairs[sorted_index].key;
-        u32 hash = sorted_pairs[sorted_index].hash;
-        u32 source_index = sorted_pairs[sorted_index].index;
-        sorted_hashes[sorted_index] = hash;
-        sorted_keys[sorted_index] = key;
-        sorted_indices[sorted_index] = source_index;
-
-        if (key < particle_count && offsets[key] == particle_count)
+        u32 parent_group_count = SimulationSpatialHash_CeilDivideU32(group_count, SIMULATION_SCAN_ITEMS_PER_GROUP);
+        if (parent_group_count > 1u)
         {
-            offsets[key] = sorted_index;
+            Base_LogError("GPU count sort scan does not yet support more than two scan levels.");
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+            glUseProgram(0);
+            return false;
         }
+
+        glUniform1i(spatial_hash->scan_item_count_uniform, (i32) group_count);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, spatial_hash->group_sums_buffer.identifier);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->group_sums_scratch_buffer.identifier);
+        OpenGL_DispatchCompute(1u, 1u, 1u);
+        OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        glUseProgram(spatial_hash->scan_combine_program_identifier);
+        glUniform1i(spatial_hash->scan_combine_item_count_uniform, (i32) item_count);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, elements_buffer->identifier);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->group_sums_buffer.identifier);
+        OpenGL_DispatchCompute(group_count, 1, 1);
+        OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
     }
 
-    bool upload_success =
-        OpenGL_UpdateBuffer(&particle_buffers->spatial_key_buffer, 0, (i32) (particle_count * sizeof(u32)), sorted_keys) &&
-        OpenGL_UpdateBuffer(&particle_buffers->spatial_hash_buffer, 0, (i32) (particle_count * sizeof(u32)), sorted_hashes) &&
-        OpenGL_UpdateBuffer(&particle_buffers->spatial_index_buffer, 0, (i32) (particle_count * sizeof(u32)), sorted_indices) &&
-        OpenGL_UpdateBuffer(&particle_buffers->spatial_offset_buffer, 0, (i32) (particle_count * sizeof(u32)), offsets);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+    glUseProgram(0);
+    return true;
+}
 
-    free(sorted_pairs);
-    free(sorted_hashes);
-    free(sorted_keys);
-    free(sorted_indices);
-    free(offsets);
-    return upload_success;
+static bool SimulationSpatialHash_SortHashes (
+    SimulationSpatialHash *spatial_hash,
+    SimulationParticleBuffers *particle_buffers)
+{
+    Base_Assert(spatial_hash != NULL);
+    Base_Assert(particle_buffers != NULL);
+
+    u32 particle_count = particle_buffers->particle_count;
+    u32 workgroup_count_x = SimulationSpatialHash_CeilDivideU32(particle_count, 64u);
+
+    glUseProgram(spatial_hash->reorder_hashes_program_identifier);
+    glUniform1i(spatial_hash->reorder_hashes_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_hash_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->spatial_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spatial_hash->sorted_hash_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glUseProgram(spatial_hash->copyback_hashes_program_identifier);
+    glUniform1i(spatial_hash->copyback_hashes_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_hash_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->sorted_hash_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+    glUseProgram(0);
+    return true;
+}
+
+static bool SimulationSpatialHash_BuildOffsets (
+    SimulationSpatialHash *spatial_hash,
+    SimulationParticleBuffers *particle_buffers)
+{
+    Base_Assert(spatial_hash != NULL);
+    Base_Assert(particle_buffers != NULL);
+
+    u32 particle_count = particle_buffers->particle_count;
+    u32 workgroup_count_x = SimulationSpatialHash_CeilDivideU32(particle_count, SIMULATION_SORT_THREAD_GROUP_SIZE);
+
+    glUseProgram(spatial_hash->initialize_offsets_program_identifier);
+    glUniform1i(spatial_hash->initialize_offsets_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_offset_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glUseProgram(spatial_hash->calculate_offsets_program_identifier);
+    glUniform1i(spatial_hash->calculate_offsets_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_key_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->spatial_offset_buffer.identifier);
+    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+    glUseProgram(0);
+    return true;
 }
 
 bool SimulationSpatialHash_Initialize (SimulationSpatialHash *spatial_hash)
@@ -99,15 +214,50 @@ bool SimulationSpatialHash_Initialize (SimulationSpatialHash *spatial_hash)
     }
 
     spatial_hash->generate_keys_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/spatial_hash_keys.comp");
-    if (spatial_hash->generate_keys_program_identifier == 0)
+    spatial_hash->clear_counts_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/count_sort_clear.comp");
+    spatial_hash->calculate_counts_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/count_sort_counts.comp");
+    spatial_hash->scatter_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/count_sort_scatter.comp");
+    spatial_hash->copyback_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/count_sort_copyback.comp");
+    spatial_hash->scan_block_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/scan_block.comp");
+    spatial_hash->scan_combine_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/scan_combine.comp");
+    spatial_hash->initialize_offsets_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/spatial_offsets_init.comp");
+    spatial_hash->calculate_offsets_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/spatial_offsets_calculate.comp");
+    spatial_hash->reorder_hashes_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/spatial_hash_reorder_hashes.comp");
+    spatial_hash->copyback_hashes_program_identifier = OpenGL_CreateComputeProgramFromFile("assets/shaders/spatial_hash_copyback_hashes.comp");
+
+    bool initialize_success =
+        spatial_hash->generate_keys_program_identifier != 0 &&
+        spatial_hash->clear_counts_program_identifier != 0 &&
+        spatial_hash->calculate_counts_program_identifier != 0 &&
+        spatial_hash->scatter_program_identifier != 0 &&
+        spatial_hash->copyback_program_identifier != 0 &&
+        spatial_hash->scan_block_program_identifier != 0 &&
+        spatial_hash->scan_combine_program_identifier != 0 &&
+        spatial_hash->initialize_offsets_program_identifier != 0 &&
+        spatial_hash->calculate_offsets_program_identifier != 0 &&
+        spatial_hash->reorder_hashes_program_identifier != 0 &&
+        spatial_hash->copyback_hashes_program_identifier != 0;
+
+    if (!initialize_success)
     {
-        Base_LogError("Failed to create the spatial hash key-generation compute program.");
+        Base_LogError("Failed to create one or more GPU spatial hash programs.");
+        SimulationSpatialHash_Shutdown(spatial_hash);
         return false;
     }
 
     spatial_hash->cell_size_uniform = glGetUniformLocation(spatial_hash->generate_keys_program_identifier, "u_cell_size");
     spatial_hash->particle_count_uniform = glGetUniformLocation(spatial_hash->generate_keys_program_identifier, "u_particle_count");
     spatial_hash->table_size_uniform = glGetUniformLocation(spatial_hash->generate_keys_program_identifier, "u_table_size");
+    spatial_hash->clear_counts_particle_count_uniform = glGetUniformLocation(spatial_hash->clear_counts_program_identifier, "u_particle_count");
+    spatial_hash->calculate_counts_particle_count_uniform = glGetUniformLocation(spatial_hash->calculate_counts_program_identifier, "u_particle_count");
+    spatial_hash->scatter_particle_count_uniform = glGetUniformLocation(spatial_hash->scatter_program_identifier, "u_particle_count");
+    spatial_hash->copyback_particle_count_uniform = glGetUniformLocation(spatial_hash->copyback_program_identifier, "u_particle_count");
+    spatial_hash->scan_item_count_uniform = glGetUniformLocation(spatial_hash->scan_block_program_identifier, "u_item_count");
+    spatial_hash->scan_combine_item_count_uniform = glGetUniformLocation(spatial_hash->scan_combine_program_identifier, "u_item_count");
+    spatial_hash->initialize_offsets_particle_count_uniform = glGetUniformLocation(spatial_hash->initialize_offsets_program_identifier, "u_particle_count");
+    spatial_hash->calculate_offsets_particle_count_uniform = glGetUniformLocation(spatial_hash->calculate_offsets_program_identifier, "u_particle_count");
+    spatial_hash->reorder_hashes_particle_count_uniform = glGetUniformLocation(spatial_hash->reorder_hashes_program_identifier, "u_particle_count");
+    spatial_hash->copyback_hashes_particle_count_uniform = glGetUniformLocation(spatial_hash->copyback_hashes_program_identifier, "u_particle_count");
     return true;
 }
 
@@ -115,11 +265,24 @@ void SimulationSpatialHash_Shutdown (SimulationSpatialHash *spatial_hash)
 {
     if (spatial_hash == NULL) return;
 
-    if (spatial_hash->generate_keys_program_identifier != 0)
-    {
-        glDeleteProgram(spatial_hash->generate_keys_program_identifier);
-    }
+    if (spatial_hash->generate_keys_program_identifier != 0) glDeleteProgram(spatial_hash->generate_keys_program_identifier);
+    if (spatial_hash->clear_counts_program_identifier != 0) glDeleteProgram(spatial_hash->clear_counts_program_identifier);
+    if (spatial_hash->calculate_counts_program_identifier != 0) glDeleteProgram(spatial_hash->calculate_counts_program_identifier);
+    if (spatial_hash->scatter_program_identifier != 0) glDeleteProgram(spatial_hash->scatter_program_identifier);
+    if (spatial_hash->copyback_program_identifier != 0) glDeleteProgram(spatial_hash->copyback_program_identifier);
+    if (spatial_hash->scan_block_program_identifier != 0) glDeleteProgram(spatial_hash->scan_block_program_identifier);
+    if (spatial_hash->scan_combine_program_identifier != 0) glDeleteProgram(spatial_hash->scan_combine_program_identifier);
+    if (spatial_hash->initialize_offsets_program_identifier != 0) glDeleteProgram(spatial_hash->initialize_offsets_program_identifier);
+    if (spatial_hash->calculate_offsets_program_identifier != 0) glDeleteProgram(spatial_hash->calculate_offsets_program_identifier);
+    if (spatial_hash->reorder_hashes_program_identifier != 0) glDeleteProgram(spatial_hash->reorder_hashes_program_identifier);
+    if (spatial_hash->copyback_hashes_program_identifier != 0) glDeleteProgram(spatial_hash->copyback_hashes_program_identifier);
 
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_key_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_index_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->sorted_hash_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->counts_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->group_sums_buffer);
+    OpenGL_DestroyBuffer(&spatial_hash->group_sums_scratch_buffer);
     memset(spatial_hash, 0, sizeof(*spatial_hash));
 }
 
@@ -140,7 +303,13 @@ bool SimulationSpatialHash_Run (
     }
 
     u32 particle_count = particle_buffers->particle_count;
-    u32 workgroup_count_x = (particle_count + 63u) / 64u;
+    u32 sort_workgroup_count_x = SimulationSpatialHash_CeilDivideU32(particle_count, SIMULATION_SORT_THREAD_GROUP_SIZE);
+    u32 key_workgroup_count_x = SimulationSpatialHash_CeilDivideU32(particle_count, 64u);
+
+    if (!SimulationSpatialHash_EnsureTemporaryBuffers(spatial_hash, particle_count))
+    {
+        return false;
+    }
 
     glUseProgram(spatial_hash->generate_keys_program_identifier);
     glUniform1f(spatial_hash->cell_size_uniform, settings.cell_size);
@@ -150,44 +319,88 @@ bool SimulationSpatialHash_Run (
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, particle_buffers->spatial_key_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, particle_buffers->spatial_hash_buffer.identifier);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, particle_buffers->spatial_index_buffer.identifier);
-    OpenGL_DispatchCompute(workgroup_count_x, 1, 1);
+    OpenGL_DispatchCompute(key_workgroup_count_x, 1, 1);
     OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glUseProgram(spatial_hash->clear_counts_program_identifier);
+    glUniform1i(spatial_hash->clear_counts_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->counts_buffer.identifier);
+    OpenGL_DispatchCompute(sort_workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glUseProgram(spatial_hash->calculate_counts_program_identifier);
+    glUniform1i(spatial_hash->calculate_counts_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_key_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, spatial_hash->counts_buffer.identifier);
+    OpenGL_DispatchCompute(sort_workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    if (!SimulationSpatialHash_RunExclusiveScan(spatial_hash, &spatial_hash->counts_buffer, particle_count))
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
+        glUseProgram(0);
+        return false;
+    }
+
+    glUseProgram(spatial_hash->scatter_program_identifier);
+    glUniform1i(spatial_hash->scatter_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->spatial_key_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spatial_hash->sorted_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, spatial_hash->sorted_key_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, spatial_hash->counts_buffer.identifier);
+    OpenGL_DispatchCompute(sort_workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glUseProgram(spatial_hash->copyback_program_identifier);
+    glUniform1i(spatial_hash->copyback_particle_count_uniform, (i32) particle_count);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->spatial_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, particle_buffers->spatial_key_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spatial_hash->sorted_index_buffer.identifier);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, spatial_hash->sorted_key_buffer.identifier);
+    OpenGL_DispatchCompute(sort_workgroup_count_x, 1, 1);
+    OpenGL_MemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    if (!SimulationSpatialHash_SortHashes(spatial_hash, particle_buffers))
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
+        glUseProgram(0);
+        return false;
+    }
+
+    if (!SimulationSpatialHash_BuildOffsets(spatial_hash, particle_buffers))
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
+        glUseProgram(0);
+        return false;
+    }
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, 0);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, 0);
     glUseProgram(0);
-
-    u32 *unsorted_hashes = (u32 *) calloc(particle_count, sizeof(u32));
-    u32 *unsorted_keys = (u32 *) calloc(particle_count, sizeof(u32));
-    u32 *unsorted_indices = (u32 *) calloc(particle_count, sizeof(u32));
-    if (unsorted_hashes == NULL || unsorted_keys == NULL || unsorted_indices == NULL)
-    {
-        free(unsorted_hashes);
-        free(unsorted_keys);
-        free(unsorted_indices);
-        Base_LogError("Failed to allocate spatial hash readback buffers.");
-        return false;
-    }
-
-    bool read_success =
-        OpenGL_ReadBuffer(&particle_buffers->spatial_hash_buffer, unsorted_hashes, (i32) (particle_count * sizeof(u32))) &&
-        OpenGL_ReadBuffer(&particle_buffers->spatial_key_buffer, unsorted_keys, (i32) (particle_count * sizeof(u32))) &&
-        OpenGL_ReadBuffer(&particle_buffers->spatial_index_buffer, unsorted_indices, (i32) (particle_count * sizeof(u32)));
-
-    if (!read_success)
-    {
-        free(unsorted_hashes);
-        free(unsorted_keys);
-        free(unsorted_indices);
-        return false;
-    }
-
-    bool upload_success = SimulationSpatialHash_SortAndUpload(particle_buffers, unsorted_hashes, unsorted_keys, unsorted_indices);
-    free(unsorted_hashes);
-    free(unsorted_keys);
-    free(unsorted_indices);
-    return upload_success;
+    return true;
 }
 
 bool SimulationSpatialHash_RunValidation (void)
@@ -255,23 +468,15 @@ bool SimulationSpatialHash_RunValidation (void)
                 break;
             }
 
-            if (sorted_index > 0 &&
-                sorted_keys[sorted_index - 1] == sorted_keys[sorted_index] &&
-                sorted_hashes[sorted_index - 1] > sorted_hashes[sorted_index])
+            if ((sorted_hashes[sorted_index] % particle_count) != sorted_keys[sorted_index])
             {
                 validation_success = false;
                 break;
             }
-        }
-    }
 
-    if (validation_success)
-    {
-        for (u32 key = 0; key < particle_count; key++)
-        {
-            if (offsets[key] < particle_count)
+            if (sorted_keys[sorted_index] < particle_count)
             {
-                if (sorted_keys[offsets[key]] != key)
+                if (offsets[sorted_keys[sorted_index]] > sorted_index)
                 {
                     validation_success = false;
                     break;
