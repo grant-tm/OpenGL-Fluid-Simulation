@@ -77,6 +77,7 @@ typedef struct SimulationRenderer
     u32 screen_fluid_comp_blur_texture_identifier;
     u32 screen_fluid_normal_texture_identifier;
     u32 screen_fluid_scene_texture_identifier;
+    u32 screen_fluid_foam_texture_identifier;
     u32 screen_fluid_shadow_texture_identifier;
     u32 screen_fluid_shadow_blur_texture_identifier;
     i32 screen_fluid_shadow_texture_width;
@@ -138,6 +139,7 @@ typedef struct SimulationRenderer
     i32 screen_fluid_composite_bounds_size_uniform;
     i32 screen_fluid_composite_normal_texture_uniform;
     i32 screen_fluid_composite_scene_texture_uniform;
+    i32 screen_fluid_composite_foam_texture_uniform;
     i32 screen_fluid_composite_shadow_texture_uniform;
     i32 screen_fluid_composite_shadow_view_projection_uniform;
 } SimulationRenderer;

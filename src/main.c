@@ -651,7 +651,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->volume_density_settings.resolution_y = 24;
     application->volume_density_settings.resolution_z = 24;
     application->volume_density_settings.density_scale = 1.0f;
-    application->whitewater_settings.maximum_particle_count = 16384u;
+    application->whitewater_settings.maximum_particle_count = 1000u;
     application->whitewater_settings.spawn_rate = 70.0f;
     application->whitewater_settings.trapped_air_velocity_minimum = 5.0f;
     application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
@@ -661,10 +661,10 @@ static bool Application_InitializeSimulationView(Application *application)
     application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
     application->whitewater_settings.gravity = application->step_settings.gravity;
     application->whitewater_settings.delta_time_seconds = application->fixed_simulation_delta_time_seconds;
-    application->whitewater_settings.bubble_buoyancy = 1.4f;
+    application->whitewater_settings.bubble_buoyancy = 1.5f;
     application->whitewater_settings.spray_classify_maximum_neighbors = 5;
     application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
-    application->whitewater_settings.bubble_scale = 0.3f;
+    application->whitewater_settings.bubble_scale = 0.5f;
     application->whitewater_settings.bubble_scale_change_speed = 7.0f;
     application->whitewater_settings.collision_damping = 0.10f;
     application->whitewater_settings.bounds_size = application->simulation_bounds_size;

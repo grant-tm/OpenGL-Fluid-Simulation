@@ -58,6 +58,7 @@ uniform float u_trapped_air_velocity_minimum;
 uniform float u_trapped_air_velocity_maximum;
 uniform float u_kinetic_energy_minimum;
 uniform float u_kinetic_energy_maximum;
+uniform float u_bubble_scale;
 uniform float u_target_density;
 uniform float u_smoothing_radius;
 
@@ -140,8 +141,7 @@ void main(void)
 
     ivec3 origin_cell = ivec3(floor(position / u_smoothing_radius));
     float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
-    float velocity_difference_sum = 0.0;
-    float influence_weight_sum = 0.0;
+    float weighted_velocity_difference = 0.0;
 
     for (int offset_index = 0; offset_index < 27; offset_index++)
     {
@@ -176,17 +176,24 @@ void main(void)
             if (distance_squared <= smoothing_radius_squared)
             {
                 float distance_to_neighbor = sqrt(distance_squared);
-                float influence_weight = SmoothingKernelPoly6(distance_to_neighbor, u_smoothing_radius);
                 vec3 neighbor_velocity = velocities[sorted_index].xyz;
-                velocity_difference_sum += length(neighbor_velocity - velocity) * influence_weight;
-                influence_weight_sum += influence_weight;
+                vec3 direction_to_neighbor = distance_to_neighbor > 0.000001
+                    ? offset_to_neighbor / distance_to_neighbor
+                    : vec3(0.0, 1.0, 0.0);
+                vec3 relative_velocity = velocity - neighbor_velocity;
+                float relative_velocity_magnitude = length(relative_velocity);
+                vec3 relative_velocity_direction = relative_velocity_magnitude > 0.000001
+                    ? relative_velocity / relative_velocity_magnitude
+                    : vec3(0.0);
+                float converge_weight = 1.0 - dot(relative_velocity_direction, -direction_to_neighbor);
+                float influence_weight = 1.0 - min(1.0, distance_to_neighbor / u_smoothing_radius);
+                weighted_velocity_difference += relative_velocity_magnitude * converge_weight * influence_weight;
             }
 
             sorted_index += 1u;
         }
     }
 
-    float weighted_velocity_difference = velocity_difference_sum / max(influence_weight_sum, 0.0001);
     float trapped_air_factor =
         u_spawn_rate * Remap01(
             weighted_velocity_difference,
@@ -233,7 +240,9 @@ void main(void)
         vec3 spawn_position = cylinder_base + base_offset + (cylinder_top - cylinder_base) * RandomValue(random_state);
         float lifetime = mix(5.0, 15.0, RandomValue(random_state));
 
-        whitewater_particles[whitewater_index].position_and_scale = vec4(spawn_position, 0.65);
+        whitewater_particles[whitewater_index].position_and_scale = vec4(
+            spawn_position,
+            (u_bubble_scale + 1.0) * 0.5);
         whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(velocity + base_offset, lifetime);
     }
 }

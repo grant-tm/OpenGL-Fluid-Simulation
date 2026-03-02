@@ -50,6 +50,7 @@ typedef struct SimulationWhitewater
     i32 spawn_trapped_air_velocity_maximum_uniform;
     i32 spawn_kinetic_energy_minimum_uniform;
     i32 spawn_kinetic_energy_maximum_uniform;
+    i32 spawn_bubble_scale_uniform;
     i32 spawn_target_density_uniform;
     i32 spawn_smoothing_radius_uniform;
     i32 update_particle_count_uniform;

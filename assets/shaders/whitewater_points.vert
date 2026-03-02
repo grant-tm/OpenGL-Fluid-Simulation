@@ -6,8 +6,7 @@ layout(location = 1) in vec4 a_velocity_and_lifetime;
 uniform mat4 u_projection;
 uniform mat4 u_view;
 
-out float v_lifetime;
-out float v_speed;
+out float v_linear_depth;
 
 void main(void)
 {
@@ -20,13 +19,12 @@ void main(void)
     {
         gl_Position = vec4(-2.0, -2.0, 0.0, 1.0);
         gl_PointSize = 0.0;
-        v_lifetime = 0.0;
-        v_speed = 0.0;
+        v_linear_depth = 10000.0;
         return;
     }
 
-    gl_Position = u_projection * u_view * vec4(position, 1.0);
+    vec3 view_position = (u_view * vec4(position, 1.0)).xyz;
+    gl_Position = u_projection * vec4(view_position, 1.0);
     gl_PointSize = max(5.0, scale * 28.0);
-    v_lifetime = lifetime;
-    v_speed = speed;
+    v_linear_depth = length(view_position);
 }

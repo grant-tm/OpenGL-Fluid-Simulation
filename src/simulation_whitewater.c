@@ -105,6 +105,8 @@ bool SimulationWhitewater_Initialize (SimulationWhitewater *whitewater, u32 maxi
         glGetUniformLocation(whitewater->spawn_program_identifier, "u_kinetic_energy_minimum");
     whitewater->spawn_kinetic_energy_maximum_uniform =
         glGetUniformLocation(whitewater->spawn_program_identifier, "u_kinetic_energy_maximum");
+    whitewater->spawn_bubble_scale_uniform =
+        glGetUniformLocation(whitewater->spawn_program_identifier, "u_bubble_scale");
     whitewater->spawn_target_density_uniform =
         glGetUniformLocation(whitewater->spawn_program_identifier, "u_target_density");
     whitewater->spawn_smoothing_radius_uniform =
@@ -234,6 +236,7 @@ bool SimulationWhitewater_Run (
     glUniform1f(whitewater->spawn_trapped_air_velocity_maximum_uniform, settings.trapped_air_velocity_maximum);
     glUniform1f(whitewater->spawn_kinetic_energy_minimum_uniform, settings.kinetic_energy_minimum);
     glUniform1f(whitewater->spawn_kinetic_energy_maximum_uniform, settings.kinetic_energy_maximum);
+    glUniform1f(whitewater->spawn_bubble_scale_uniform, settings.bubble_scale);
     glUniform1f(whitewater->spawn_target_density_uniform, settings.target_density);
     glUniform1f(whitewater->spawn_smoothing_radius_uniform, settings.smoothing_radius);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particle_buffers->predicted_position_buffer.identifier);
