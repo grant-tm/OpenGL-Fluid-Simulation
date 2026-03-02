@@ -315,10 +315,6 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 {
                     if (application->render_mode == SIMULATION_RENDER_MODE_PARTICLES)
                     {
-                        application->render_mode = SIMULATION_RENDER_MODE_VOLUME;
-                    }
-                    else if (application->render_mode == SIMULATION_RENDER_MODE_VOLUME)
-                    {
                         application->render_mode = SIMULATION_RENDER_MODE_SCREEN_FLUID;
                     }
                     else
@@ -615,7 +611,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->most_recent_frame_delta_time_seconds = 0.0f;
     application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
     application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
-    application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL;
+    application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN;
     application->simulation_is_paused = false;
     application->simulation_single_step_requested = false;
     application->simulation_accumulator_seconds = 0.0f;
@@ -665,7 +661,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, 7 composite, 8 packed, 9 normals, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
+    Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
@@ -1137,7 +1133,6 @@ static const char *Application_GetRenderModeName(SimulationRenderMode render_mod
     switch (render_mode)
     {
         case SIMULATION_RENDER_MODE_PARTICLES: return "particles";
-        case SIMULATION_RENDER_MODE_VOLUME: return "volume";
         case SIMULATION_RENDER_MODE_SCREEN_FLUID: return "screen fluid";
     }
 

@@ -17,7 +17,6 @@ typedef struct SimulationRenderer
 {
     u32 particle_program_identifier;
     u32 line_program_identifier;
-    u32 volume_program_identifier;
     u32 screen_fluid_thickness_program_identifier;
     u32 screen_fluid_depth_program_identifier;
     u32 screen_fluid_prepare_program_identifier;
@@ -31,8 +30,6 @@ typedef struct SimulationRenderer
     u32 screen_fluid_quad_vbo_identifier;
     u32 bounds_vao_identifier;
     u32 bounds_vbo_identifier;
-    u32 volume_vao_identifier;
-    u32 volume_vbo_identifier;
     u32 fullscreen_vao_identifier;
     u32 screen_fluid_framebuffer_identifier;
     u32 screen_fluid_blur_framebuffer_identifier;
@@ -66,14 +63,6 @@ typedef struct SimulationRenderer
     i32 line_view_uniform;
     i32 line_color_uniform;
     i32 line_model_uniform;
-    i32 volume_projection_uniform;
-    i32 volume_view_uniform;
-    i32 volume_bounds_size_uniform;
-    i32 volume_camera_position_uniform;
-    i32 volume_density_texture_uniform;
-    i32 volume_step_count_uniform;
-    i32 volume_density_multiplier_uniform;
-    i32 volume_voxel_size_uniform;
     i32 screen_fluid_thickness_projection_uniform;
     i32 screen_fluid_thickness_view_uniform;
     i32 screen_fluid_thickness_point_size_uniform;
@@ -119,8 +108,7 @@ typedef struct SimulationRenderer
 typedef enum SimulationRenderMode
 {
     SIMULATION_RENDER_MODE_PARTICLES = 0,
-    SIMULATION_RENDER_MODE_VOLUME = 1,
-    SIMULATION_RENDER_MODE_SCREEN_FLUID = 2,
+    SIMULATION_RENDER_MODE_SCREEN_FLUID = 1,
 } SimulationRenderMode;
 
 typedef enum SimulationParticleVisualizationMode

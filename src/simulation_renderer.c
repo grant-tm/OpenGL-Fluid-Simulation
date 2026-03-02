@@ -148,30 +148,6 @@ static bool SimulationRenderer_CreateBoundsGeometry (SimulationRenderer *rendere
     return true;
 }
 
-static bool SimulationRenderer_CreateCubeGeometry (u32 *vao_identifier, u32 *vbo_identifier)
-{
-    static const f32 cube_vertices[] =
-    {
-        -0.5f,-0.5f,-0.5f, 0.5f,-0.5f,-0.5f, 0.5f,0.5f,-0.5f, -0.5f,-0.5f,-0.5f, 0.5f,0.5f,-0.5f, -0.5f,0.5f,-0.5f,
-        -0.5f,-0.5f,0.5f, 0.5f,0.5f,0.5f, 0.5f,-0.5f,0.5f, -0.5f,-0.5f,0.5f, -0.5f,0.5f,0.5f, 0.5f,0.5f,0.5f,
-        -0.5f,-0.5f,-0.5f, -0.5f,0.5f,0.5f, -0.5f,-0.5f,0.5f, -0.5f,-0.5f,-0.5f, -0.5f,0.5f,-0.5f, -0.5f,0.5f,0.5f,
-        0.5f,-0.5f,-0.5f, 0.5f,-0.5f,0.5f, 0.5f,0.5f,0.5f, 0.5f,-0.5f,-0.5f, 0.5f,0.5f,0.5f, 0.5f,0.5f,-0.5f,
-        -0.5f,-0.5f,-0.5f, -0.5f,-0.5f,0.5f, 0.5f,-0.5f,0.5f, -0.5f,-0.5f,-0.5f, 0.5f,-0.5f,0.5f, 0.5f,-0.5f,-0.5f,
-        -0.5f,0.5f,-0.5f, 0.5f,0.5f,0.5f, -0.5f,0.5f,0.5f, -0.5f,0.5f,-0.5f, 0.5f,0.5f,-0.5f, 0.5f,0.5f,0.5f,
-    };
-    glGenVertexArrays(1, vao_identifier);
-    glGenBuffers(1, vbo_identifier);
-    if (*vao_identifier == 0 || *vbo_identifier == 0) return false;
-    glBindVertexArray(*vao_identifier);
-    glBindBuffer(GL_ARRAY_BUFFER, *vbo_identifier);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertices), cube_vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(f32), (void *) 0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    return true;
-}
-
 static bool SimulationRenderer_CreateScreenFluidQuadGeometry (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers)
 {
     static const f32 quad_vertices[] =
@@ -242,8 +218,6 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 particle_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/particle_points.frag");
     u32 line_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/bounds_lines.vert");
     u32 line_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/bounds_lines.frag");
-    u32 volume_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/volume_box.vert");
-    u32 volume_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/volume_box.frag");
     u32 fluid_thickness_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/screen_fluid_thickness.vert");
     u32 fluid_thickness_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_thickness.frag");
     u32 fluid_depth_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/screen_fluid_depth.vert");
@@ -255,12 +229,12 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 debug_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_debug.frag");
     u32 shadow_blur_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_shadow_blur.frag");
     u32 composite_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_composite.frag");
-    if (particle_vs == 0 || particle_fs == 0 || line_vs == 0 || line_fs == 0 || volume_vs == 0 || volume_fs == 0 ||
+    if (particle_vs == 0 || particle_fs == 0 || line_vs == 0 || line_fs == 0 ||
         fluid_thickness_vs == 0 || fluid_thickness_fs == 0 || fluid_depth_vs == 0 || fluid_depth_fs == 0 ||
         fullscreen_vs == 0 || prepare_fs == 0 || blur_fs == 0 || normal_fs == 0 || debug_fs == 0 || shadow_blur_fs == 0 || composite_fs == 0)
     {
         glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
-        glDeleteShader(volume_vs); glDeleteShader(volume_fs); glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
+        glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
         glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
         glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs); glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
         return false;
@@ -268,7 +242,6 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 pair[2];
     pair[0] = particle_vs; pair[1] = particle_fs; renderer->particle_program_identifier = OpenGL_LinkProgram(pair, 2, "particle_points");
     pair[0] = line_vs; pair[1] = line_fs; renderer->line_program_identifier = OpenGL_LinkProgram(pair, 2, "bounds_lines");
-    pair[0] = volume_vs; pair[1] = volume_fs; renderer->volume_program_identifier = OpenGL_LinkProgram(pair, 2, "volume_box");
     pair[0] = fluid_thickness_vs; pair[1] = fluid_thickness_fs; renderer->screen_fluid_thickness_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_thickness");
     pair[0] = fluid_depth_vs; pair[1] = fluid_depth_fs; renderer->screen_fluid_depth_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_depth");
     pair[0] = fullscreen_vs; pair[1] = prepare_fs; renderer->screen_fluid_prepare_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_prepare");
@@ -278,12 +251,11 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     pair[0] = fullscreen_vs; pair[1] = shadow_blur_fs; renderer->screen_fluid_shadow_blur_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_shadow_blur");
     pair[0] = fullscreen_vs; pair[1] = composite_fs; renderer->screen_fluid_composite_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_composite");
     glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
-    glDeleteShader(volume_vs); glDeleteShader(volume_fs); glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
+    glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
     glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
     glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs); glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
     return renderer->particle_program_identifier != 0 &&
         renderer->line_program_identifier != 0 &&
-        renderer->volume_program_identifier != 0 &&
         renderer->screen_fluid_thickness_program_identifier != 0 &&
         renderer->screen_fluid_depth_program_identifier != 0 &&
         renderer->screen_fluid_prepare_program_identifier != 0 &&
@@ -309,14 +281,6 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->line_view_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_view");
     renderer->line_color_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_color");
     renderer->line_model_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_model");
-    renderer->volume_projection_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_projection");
-    renderer->volume_view_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_view");
-    renderer->volume_bounds_size_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_bounds_size");
-    renderer->volume_camera_position_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_camera_position");
-    renderer->volume_density_texture_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_density_texture");
-    renderer->volume_step_count_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_step_count");
-    renderer->volume_density_multiplier_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_density_multiplier");
-    renderer->volume_voxel_size_uniform = glGetUniformLocation(renderer->volume_program_identifier, "u_voxel_size");
     renderer->screen_fluid_thickness_projection_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_projection");
     renderer->screen_fluid_thickness_view_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_view");
     renderer->screen_fluid_thickness_point_size_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_point_size");
@@ -569,7 +533,6 @@ bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const Simulati
     if (!SimulationRenderer_CreateParticleGeometry(renderer, particle_buffers) ||
         !SimulationRenderer_CreateScreenFluidQuadGeometry(renderer, particle_buffers) ||
         !SimulationRenderer_CreateBoundsGeometry(renderer) ||
-        !SimulationRenderer_CreateCubeGeometry(&renderer->volume_vao_identifier, &renderer->volume_vbo_identifier) ||
         !SimulationRenderer_CreateFullscreenGeometry(renderer))
     {
         SimulationRenderer_Shutdown(renderer);
@@ -587,7 +550,6 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer == NULL) return;
     if (renderer->particle_program_identifier != 0) glDeleteProgram(renderer->particle_program_identifier);
     if (renderer->line_program_identifier != 0) glDeleteProgram(renderer->line_program_identifier);
-    if (renderer->volume_program_identifier != 0) glDeleteProgram(renderer->volume_program_identifier);
     if (renderer->screen_fluid_thickness_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_thickness_program_identifier);
     if (renderer->screen_fluid_depth_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_depth_program_identifier);
     if (renderer->screen_fluid_prepare_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_prepare_program_identifier);
@@ -601,8 +563,6 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer->screen_fluid_quad_vbo_identifier != 0) glDeleteBuffers(1, &renderer->screen_fluid_quad_vbo_identifier);
     if (renderer->bounds_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->bounds_vao_identifier);
     if (renderer->bounds_vbo_identifier != 0) glDeleteBuffers(1, &renderer->bounds_vbo_identifier);
-    if (renderer->volume_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->volume_vao_identifier);
-    if (renderer->volume_vbo_identifier != 0) glDeleteBuffers(1, &renderer->volume_vbo_identifier);
     if (renderer->fullscreen_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->fullscreen_vao_identifier);
     if (renderer->screen_fluid_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_framebuffer_identifier);
     if (renderer->screen_fluid_blur_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_blur_framebuffer_identifier);
@@ -651,34 +611,6 @@ static void SimulationRenderer_DrawParticles (
     glUniform1f(renderer->particle_speed_maximum_uniform, speed_maximum);
     glBindVertexArray(renderer->particle_vao_identifier);
     glDrawArrays(GL_POINTS, 0, (GLsizei) particle_buffers->particle_count);
-}
-
-static void SimulationRenderer_DrawVolume (
-    SimulationRenderer *renderer, const SimulationVolumeDensity *volume_density, Mat4 projection_matrix, Mat4 view_matrix,
-    Vec3 simulation_bounds_size, Vec3 camera_position)
-{
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glDepthMask(GL_FALSE);
-    glUseProgram(renderer->volume_program_identifier);
-    glUniformMatrix4fv(renderer->volume_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
-    glUniformMatrix4fv(renderer->volume_view_uniform, 1, GL_FALSE, view_matrix.elements);
-    glUniform3f(renderer->volume_bounds_size_uniform, simulation_bounds_size.x, simulation_bounds_size.y, simulation_bounds_size.z);
-    glUniform3f(renderer->volume_camera_position_uniform, camera_position.x, camera_position.y, camera_position.z);
-    glUniform1i(renderer->volume_density_texture_uniform, 0);
-    glUniform1i(renderer->volume_step_count_uniform, 128);
-    glUniform1f(renderer->volume_density_multiplier_uniform, 10.0f);
-    glUniform3f(renderer->volume_voxel_size_uniform,
-        1.0f / (f32) volume_density->density_texture.width,
-        1.0f / (f32) volume_density->density_texture.height,
-        1.0f / (f32) volume_density->density_texture.depth);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, volume_density->density_texture.identifier);
-    glBindVertexArray(renderer->volume_vao_identifier);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glBindTexture(GL_TEXTURE_3D, 0);
-    glDepthMask(GL_TRUE);
-    glDisable(GL_CULL_FACE);
 }
 
 static void SimulationRenderer_DrawScreenFluid (
@@ -1128,11 +1060,7 @@ void SimulationRenderer_Render (
     glClearColor(0.43f, 0.50f, 0.61f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (render_mode == SIMULATION_RENDER_MODE_VOLUME && volume_density != NULL)
-    {
-        SimulationRenderer_DrawVolume(renderer, volume_density, projection_matrix, camera_matrices.view_matrix, simulation_bounds_size, camera_matrices.position);
-    }
-    else if (render_mode == SIMULATION_RENDER_MODE_SCREEN_FLUID)
+    if (render_mode == SIMULATION_RENDER_MODE_SCREEN_FLUID)
     {
         SimulationRenderer_DrawBounds(renderer, projection_matrix, camera_matrices.view_matrix, bounds_model_matrix);
         SimulationRenderer_DrawScreenFluid(
