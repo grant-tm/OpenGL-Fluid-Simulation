@@ -4,6 +4,7 @@
 #include "base.h"
 #include "simulation_data.h"
 #include "simulation_volume_density.h"
+#include "simulation_whitewater.h"
 
 #define SIMULATION_RENDERER_GPU_QUERY_RING_SIZE 4
 
@@ -28,6 +29,7 @@ typedef struct SimulationRenderer
         f64 blur_milliseconds;
         f64 normal_milliseconds;
         f64 composite_milliseconds;
+        f64 whitewater_milliseconds;
         f64 total_milliseconds;
         f64 gpu_scene_copy_milliseconds;
         f64 gpu_shadow_milliseconds;
@@ -48,6 +50,7 @@ typedef struct SimulationRenderer
     u32 gpu_query_frame_index;
     u32 particle_program_identifier;
     u32 line_program_identifier;
+    u32 whitewater_program_identifier;
     u32 screen_fluid_thickness_program_identifier;
     u32 screen_fluid_depth_program_identifier;
     u32 screen_fluid_prepare_program_identifier;
@@ -61,6 +64,7 @@ typedef struct SimulationRenderer
     u32 screen_fluid_quad_vbo_identifier;
     u32 bounds_vao_identifier;
     u32 bounds_vbo_identifier;
+    u32 whitewater_vao_identifier;
     u32 fullscreen_vao_identifier;
     u32 screen_fluid_framebuffer_identifier;
     u32 screen_fluid_blur_framebuffer_identifier;
@@ -94,6 +98,8 @@ typedef struct SimulationRenderer
     i32 line_view_uniform;
     i32 line_color_uniform;
     i32 line_model_uniform;
+    i32 whitewater_projection_uniform;
+    i32 whitewater_view_uniform;
     i32 screen_fluid_thickness_projection_uniform;
     i32 screen_fluid_thickness_view_uniform;
     i32 screen_fluid_thickness_point_size_uniform;
@@ -164,13 +170,17 @@ typedef enum SimulationScreenFluidSmoothingMode
     SIMULATION_SCREEN_FLUID_SMOOTHING_BILATERAL_2D = 2,
 } SimulationScreenFluidSmoothingMode;
 
-bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers);
+bool SimulationRenderer_Initialize (
+    SimulationRenderer *renderer,
+    const SimulationParticleBuffers *particle_buffers,
+    const SimulationWhitewater *whitewater);
 void SimulationRenderer_Shutdown (SimulationRenderer *renderer);
 void SimulationRenderer_UpdateCamera (SimulationCamera *camera, f32 delta_time_seconds);
 void SimulationRenderer_LogScreenFluidReadback (SimulationRenderer *renderer);
 void SimulationRenderer_Render (
     SimulationRenderer *renderer,
     const SimulationParticleBuffers *particle_buffers,
+    const SimulationWhitewater *whitewater,
     const SimulationVolumeDensity *volume_density,
     SimulationCamera camera,
     Vec3 simulation_bounds_size,

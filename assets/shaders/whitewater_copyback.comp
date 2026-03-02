@@ -1,0 +1,53 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WhitewaterParticle
+{
+    vec4 position_and_scale;
+    vec4 velocity_and_lifetime;
+};
+
+layout(std430, binding = 0) buffer WhitewaterParticles
+{
+    WhitewaterParticle whitewater_particles[];
+};
+
+layout(std430, binding = 1) buffer WhitewaterCompactedParticles
+{
+    WhitewaterParticle whitewater_compacted_particles[];
+};
+
+layout(std430, binding = 2) buffer WhitewaterCounters
+{
+    uint whitewater_counters[];
+};
+
+uniform int u_maximum_whitewater_count;
+
+void main(void)
+{
+    uint whitewater_index = gl_GlobalInvocationID.x;
+    uint survivor_count = min(whitewater_counters[1], uint(u_maximum_whitewater_count));
+
+    if (whitewater_index >= uint(u_maximum_whitewater_count))
+    {
+        return;
+    }
+
+    if (whitewater_index < survivor_count)
+    {
+        whitewater_particles[whitewater_index] = whitewater_compacted_particles[whitewater_index];
+    }
+    else
+    {
+        whitewater_particles[whitewater_index].position_and_scale = vec4(0.0);
+        whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(0.0);
+    }
+
+    if (whitewater_index == 0u)
+    {
+        whitewater_counters[0] = survivor_count;
+        whitewater_counters[1] = 0u;
+    }
+}

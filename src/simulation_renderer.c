@@ -292,14 +292,19 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     u32 debug_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_debug.frag");
     u32 shadow_blur_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_shadow_blur.frag");
     u32 composite_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/screen_fluid_composite.frag");
+    u32 whitewater_vs = OpenGL_CompileShaderFromFile(GL_VERTEX_SHADER, "assets/shaders/whitewater_points.vert");
+    u32 whitewater_fs = OpenGL_CompileShaderFromFile(GL_FRAGMENT_SHADER, "assets/shaders/whitewater_points.frag");
     if (particle_vs == 0 || particle_fs == 0 || line_vs == 0 || line_fs == 0 ||
         fluid_thickness_vs == 0 || fluid_thickness_fs == 0 || fluid_depth_vs == 0 || fluid_depth_fs == 0 ||
-        fullscreen_vs == 0 || prepare_fs == 0 || blur_fs == 0 || normal_fs == 0 || debug_fs == 0 || shadow_blur_fs == 0 || composite_fs == 0)
+        fullscreen_vs == 0 || prepare_fs == 0 || blur_fs == 0 || normal_fs == 0 || debug_fs == 0 ||
+        shadow_blur_fs == 0 || composite_fs == 0 || whitewater_vs == 0 || whitewater_fs == 0)
     {
         glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
         glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
         glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
-        glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs); glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
+        glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
+        glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
+        glDeleteShader(whitewater_vs); glDeleteShader(whitewater_fs);
         return false;
     }
     u32 pair[2];
@@ -313,10 +318,13 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
     pair[0] = fullscreen_vs; pair[1] = debug_fs; renderer->screen_fluid_debug_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_debug");
     pair[0] = fullscreen_vs; pair[1] = shadow_blur_fs; renderer->screen_fluid_shadow_blur_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_shadow_blur");
     pair[0] = fullscreen_vs; pair[1] = composite_fs; renderer->screen_fluid_composite_program_identifier = OpenGL_LinkProgram(pair, 2, "screen_fluid_composite");
+    pair[0] = whitewater_vs; pair[1] = whitewater_fs; renderer->whitewater_program_identifier = OpenGL_LinkProgram(pair, 2, "whitewater_points");
     glDeleteShader(particle_vs); glDeleteShader(particle_fs); glDeleteShader(line_vs); glDeleteShader(line_fs);
     glDeleteShader(fluid_thickness_vs); glDeleteShader(fluid_thickness_fs);
     glDeleteShader(fluid_depth_vs); glDeleteShader(fluid_depth_fs);
-    glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs); glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
+    glDeleteShader(fullscreen_vs); glDeleteShader(prepare_fs); glDeleteShader(blur_fs); glDeleteShader(normal_fs);
+    glDeleteShader(debug_fs); glDeleteShader(shadow_blur_fs); glDeleteShader(composite_fs);
+    glDeleteShader(whitewater_vs); glDeleteShader(whitewater_fs);
     return renderer->particle_program_identifier != 0 &&
         renderer->line_program_identifier != 0 &&
         renderer->screen_fluid_thickness_program_identifier != 0 &&
@@ -326,7 +334,8 @@ static bool SimulationRenderer_CreateProgramSet (SimulationRenderer *renderer)
         renderer->screen_fluid_normal_program_identifier != 0 &&
         renderer->screen_fluid_debug_program_identifier != 0 &&
         renderer->screen_fluid_shadow_blur_program_identifier != 0 &&
-        renderer->screen_fluid_composite_program_identifier != 0;
+        renderer->screen_fluid_composite_program_identifier != 0 &&
+        renderer->whitewater_program_identifier != 0;
 }
 
 static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
@@ -344,6 +353,8 @@ static void SimulationRenderer_QueryUniforms (SimulationRenderer *renderer)
     renderer->line_view_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_view");
     renderer->line_color_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_color");
     renderer->line_model_uniform = glGetUniformLocation(renderer->line_program_identifier, "u_model");
+    renderer->whitewater_projection_uniform = glGetUniformLocation(renderer->whitewater_program_identifier, "u_projection");
+    renderer->whitewater_view_uniform = glGetUniformLocation(renderer->whitewater_program_identifier, "u_view");
     renderer->screen_fluid_thickness_projection_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_projection");
     renderer->screen_fluid_thickness_view_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_view");
     renderer->screen_fluid_thickness_point_size_uniform = glGetUniformLocation(renderer->screen_fluid_thickness_program_identifier, "u_point_size");
@@ -403,6 +414,27 @@ static bool SimulationRenderer_CreateParticleGeometry (SimulationRenderer *rende
     glBindBuffer(GL_ARRAY_BUFFER, particle_buffers->spatial_key_buffer.identifier);
     glVertexAttribIPointer(3, 1, GL_UNSIGNED_INT, sizeof(u32), (void *) 0);
     glEnableVertexAttribArray(3);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    return true;
+}
+
+static bool SimulationRenderer_CreateWhitewaterGeometry (
+    SimulationRenderer *renderer,
+    const SimulationWhitewater *whitewater)
+{
+    Base_Assert(renderer != NULL);
+    Base_Assert(whitewater != NULL);
+
+    glGenVertexArrays(1, &renderer->whitewater_vao_identifier);
+    if (renderer->whitewater_vao_identifier == 0) return false;
+
+    glBindVertexArray(renderer->whitewater_vao_identifier);
+    glBindBuffer(GL_ARRAY_BUFFER, whitewater->particle_buffer.identifier);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(f32), (void *) 0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(f32), (void *) (4 * sizeof(f32)));
+    glEnableVertexAttribArray(1);
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     return true;
@@ -587,18 +619,26 @@ static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *ren
         thickness_texture_height);
 }
 
-bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers);
+bool SimulationRenderer_Initialize (
+    SimulationRenderer *renderer,
+    const SimulationParticleBuffers *particle_buffers,
+    const SimulationWhitewater *whitewater);
 void SimulationRenderer_Shutdown (SimulationRenderer *renderer);
 void SimulationRenderer_UpdateCamera (SimulationCamera *camera, f32 delta_time_seconds);
 
-bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers)
+bool SimulationRenderer_Initialize (
+    SimulationRenderer *renderer,
+    const SimulationParticleBuffers *particle_buffers,
+    const SimulationWhitewater *whitewater)
 {
     Base_Assert(renderer != NULL);
     Base_Assert(particle_buffers != NULL);
+    Base_Assert(whitewater != NULL);
     memset(renderer, 0, sizeof(*renderer));
     if (!SimulationRenderer_CreateProgramSet(renderer)) return false;
     SimulationRenderer_QueryUniforms(renderer);
     if (!SimulationRenderer_CreateParticleGeometry(renderer, particle_buffers) ||
+        !SimulationRenderer_CreateWhitewaterGeometry(renderer, whitewater) ||
         !SimulationRenderer_CreateScreenFluidQuadGeometry(renderer, particle_buffers) ||
         !SimulationRenderer_CreateBoundsGeometry(renderer) ||
         !SimulationRenderer_CreateFullscreenGeometry(renderer))
@@ -626,6 +666,7 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer == NULL) return;
     if (renderer->particle_program_identifier != 0) glDeleteProgram(renderer->particle_program_identifier);
     if (renderer->line_program_identifier != 0) glDeleteProgram(renderer->line_program_identifier);
+    if (renderer->whitewater_program_identifier != 0) glDeleteProgram(renderer->whitewater_program_identifier);
     if (renderer->screen_fluid_thickness_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_thickness_program_identifier);
     if (renderer->screen_fluid_depth_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_depth_program_identifier);
     if (renderer->screen_fluid_prepare_program_identifier != 0) glDeleteProgram(renderer->screen_fluid_prepare_program_identifier);
@@ -639,6 +680,7 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer->screen_fluid_quad_vbo_identifier != 0) glDeleteBuffers(1, &renderer->screen_fluid_quad_vbo_identifier);
     if (renderer->bounds_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->bounds_vao_identifier);
     if (renderer->bounds_vbo_identifier != 0) glDeleteBuffers(1, &renderer->bounds_vbo_identifier);
+    if (renderer->whitewater_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->whitewater_vao_identifier);
     if (renderer->fullscreen_vao_identifier != 0) glDeleteVertexArrays(1, &renderer->fullscreen_vao_identifier);
     if (renderer->screen_fluid_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_framebuffer_identifier);
     if (renderer->screen_fluid_blur_framebuffer_identifier != 0) glDeleteFramebuffers(1, &renderer->screen_fluid_blur_framebuffer_identifier);
@@ -1012,6 +1054,27 @@ static void SimulationRenderer_DrawBounds (SimulationRenderer *renderer, Mat4 pr
     glDrawArrays(GL_LINES, 0, 24);
 }
 
+static void SimulationRenderer_DrawWhitewater (
+    SimulationRenderer *renderer,
+    const SimulationWhitewater *whitewater,
+    Mat4 projection_matrix,
+    Mat4 view_matrix)
+{
+    Base_Assert(renderer != NULL);
+    Base_Assert(whitewater != NULL);
+
+    if (whitewater->maximum_particle_count == 0) return;
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(renderer->whitewater_program_identifier);
+    glUniformMatrix4fv(renderer->whitewater_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
+    glUniformMatrix4fv(renderer->whitewater_view_uniform, 1, GL_FALSE, view_matrix.elements);
+    glBindVertexArray(renderer->whitewater_vao_identifier);
+    glDrawArrays(GL_POINTS, 0, (GLsizei) whitewater->maximum_particle_count);
+}
+
 void SimulationRenderer_LogScreenFluidReadback (SimulationRenderer *renderer)
 {
     f32 *texture_data;
@@ -1156,6 +1219,7 @@ void SimulationRenderer_LogScreenFluidReadback (SimulationRenderer *renderer)
 void SimulationRenderer_Render (
     SimulationRenderer *renderer,
     const SimulationParticleBuffers *particle_buffers,
+    const SimulationWhitewater *whitewater,
     const SimulationVolumeDensity *volume_density,
     SimulationCamera camera,
     Vec3 simulation_bounds_size,
@@ -1183,6 +1247,7 @@ void SimulationRenderer_Render (
 
     Base_Assert(renderer != NULL);
     Base_Assert(particle_buffers != NULL);
+    Base_Assert(whitewater != NULL);
     renderer->last_debug_timings.bounds_milliseconds = 0.0;
     renderer->last_debug_timings.particles_milliseconds = 0.0;
     renderer->last_debug_timings.scene_copy_milliseconds = 0.0;
@@ -1192,6 +1257,7 @@ void SimulationRenderer_Render (
     renderer->last_debug_timings.blur_milliseconds = 0.0;
     renderer->last_debug_timings.normal_milliseconds = 0.0;
     renderer->last_debug_timings.composite_milliseconds = 0.0;
+    renderer->last_debug_timings.whitewater_milliseconds = 0.0;
     renderer->last_debug_timings.total_milliseconds = 0.0;
     gpu_query_identifier_index = renderer->gpu_query_frame_index;
     SimulationRenderer_ReadGpuTimerQuery(
@@ -1256,6 +1322,12 @@ void SimulationRenderer_Render (
         renderer->last_debug_timings.total_milliseconds =
             SimulationRenderer_GetMillisecondsBetweenCounters(total_start_counter, pass_end_counter, performance_frequency);
         glQueryCounter(renderer->gpu_total_end_query_identifiers[gpu_query_identifier_index], GL_TIMESTAMP);
+
+        QueryPerformanceCounter(&pass_start_counter);
+        SimulationRenderer_DrawWhitewater(renderer, whitewater, projection_matrix, camera_matrices.view_matrix);
+        QueryPerformanceCounter(&pass_end_counter);
+        renderer->last_debug_timings.whitewater_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
     }
     else
     {

@@ -23,6 +23,7 @@ add_executable(FluidSim
     src/simulation_spatial_hash.c
     src/simulation_step.c
     src/simulation_volume_density.c
+    src/simulation_whitewater.c
 )
 
 target_include_directories(FluidSim PRIVATE

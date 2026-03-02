@@ -1,0 +1,232 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WhitewaterParticle
+{
+    vec4 position_and_scale;
+    vec4 velocity_and_lifetime;
+};
+
+layout(std430, binding = 0) buffer ParticlePredictedPositions
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 1) buffer ParticleVelocities
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 2) buffer SpatialKeys
+{
+    uint spatial_keys[];
+};
+
+layout(std430, binding = 3) buffer SpatialHashes
+{
+    uint spatial_hashes[];
+};
+
+layout(std430, binding = 4) buffer SpatialOffsets
+{
+    uint spatial_offsets[];
+};
+
+layout(std430, binding = 5) buffer WhitewaterParticles
+{
+    WhitewaterParticle whitewater_particles[];
+};
+
+layout(std430, binding = 6) buffer WhitewaterCompactedParticles
+{
+    WhitewaterParticle whitewater_compacted_particles[];
+};
+
+layout(std430, binding = 7) buffer WhitewaterCounters
+{
+    uint whitewater_counters[];
+};
+
+uniform int u_particle_count;
+uniform int u_table_size;
+uniform int u_maximum_whitewater_count;
+uniform float u_delta_time;
+uniform float u_gravity;
+uniform float u_bubble_buoyancy;
+uniform float u_smoothing_radius;
+uniform int u_spray_classify_maximum_neighbors;
+uniform int u_bubble_classify_minimum_neighbors;
+uniform float u_bubble_scale;
+uniform float u_bubble_scale_change_speed;
+uniform float u_collision_damping;
+uniform vec3 u_bounds_size;
+
+const uint HASH_K1 = 15823u;
+const uint HASH_K2 = 9737333u;
+const uint HASH_K3 = 440817757u;
+
+const ivec3 OFFSETS_3D[27] = ivec3[](
+    ivec3(-1, -1, -1), ivec3(0, -1, -1), ivec3(1, -1, -1),
+    ivec3(-1,  0, -1), ivec3(0,  0, -1), ivec3(1,  0, -1),
+    ivec3(-1,  1, -1), ivec3(0,  1, -1), ivec3(1,  1, -1),
+    ivec3(-1, -1,  0), ivec3(0, -1,  0), ivec3(1, -1,  0),
+    ivec3(-1,  0,  0), ivec3(0,  0,  0), ivec3(1,  0,  0),
+    ivec3(-1,  1,  0), ivec3(0,  1,  0), ivec3(1,  1,  0),
+    ivec3(-1, -1,  1), ivec3(0, -1,  1), ivec3(1, -1,  1),
+    ivec3(-1,  0,  1), ivec3(0,  0,  1), ivec3(1,  0,  1),
+    ivec3(-1,  1,  1), ivec3(0,  1,  1), ivec3(1,  1,  1)
+);
+
+uint HashCell3D(ivec3 cell)
+{
+    uvec3 unsigned_cell = uvec3(uint(cell.x), uint(cell.y), uint(cell.z));
+    return unsigned_cell.x * HASH_K1 ^ unsigned_cell.y * HASH_K2 ^ unsigned_cell.z * HASH_K3;
+}
+
+float SmoothingKernelPoly6(float distance_to_neighbor, float smoothing_radius)
+{
+    if (distance_to_neighbor >= smoothing_radius) return 0.0;
+    float remaining_distance = smoothing_radius * smoothing_radius - distance_to_neighbor * distance_to_neighbor;
+    float scale = 315.0 / (64.0 * 3.14159265 * pow(smoothing_radius, 9.0));
+    return remaining_distance * remaining_distance * remaining_distance * scale;
+}
+
+void ResolveCollisions(inout vec3 position, inout vec3 velocity)
+{
+    vec3 half_bounds_size = u_bounds_size * 0.5;
+
+    if (position.x < -half_bounds_size.x)
+    {
+        position.x = -half_bounds_size.x;
+        velocity.x *= -u_collision_damping;
+    }
+    else if (position.x > half_bounds_size.x)
+    {
+        position.x = half_bounds_size.x;
+        velocity.x *= -u_collision_damping;
+    }
+
+    if (position.y < -half_bounds_size.y)
+    {
+        position.y = -half_bounds_size.y;
+        velocity.y *= -u_collision_damping;
+    }
+    else if (position.y > half_bounds_size.y)
+    {
+        position.y = half_bounds_size.y;
+        velocity.y *= -u_collision_damping;
+    }
+
+    if (position.z < -half_bounds_size.z)
+    {
+        position.z = -half_bounds_size.z;
+        velocity.z *= -u_collision_damping;
+    }
+    else if (position.z > half_bounds_size.z)
+    {
+        position.z = half_bounds_size.z;
+        velocity.z *= -u_collision_damping;
+    }
+}
+
+void main(void)
+{
+    uint whitewater_index = gl_GlobalInvocationID.x;
+    uint active_particle_count = min(whitewater_counters[0], uint(u_maximum_whitewater_count));
+
+    if (whitewater_index >= active_particle_count)
+    {
+        return;
+    }
+
+    WhitewaterParticle particle = whitewater_particles[whitewater_index];
+    vec3 position = particle.position_and_scale.xyz;
+    vec3 velocity = particle.velocity_and_lifetime.xyz;
+    float lifetime = particle.velocity_and_lifetime.w;
+    float scale = particle.position_and_scale.w;
+
+    ivec3 origin_cell = ivec3(floor(position / u_smoothing_radius));
+    float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
+    int neighbor_count = 0;
+    vec3 velocity_sum = vec3(0.0);
+    float weight_sum = 0.0;
+
+    for (int offset_index = 0; offset_index < 27; offset_index++)
+    {
+        ivec3 neighbor_cell = origin_cell + OFFSETS_3D[offset_index];
+        uint hash = HashCell3D(neighbor_cell);
+        uint key = hash % uint(u_table_size);
+        uint sorted_index = spatial_offsets[key];
+
+        while (sorted_index < uint(u_particle_count))
+        {
+            if (spatial_keys[sorted_index] != key)
+            {
+                break;
+            }
+
+            if (spatial_hashes[sorted_index] != hash)
+            {
+                sorted_index += 1u;
+                continue;
+            }
+
+            vec3 neighbor_position = predicted_positions[sorted_index].xyz;
+            vec3 offset_to_neighbor = neighbor_position - position;
+            float distance_squared = dot(offset_to_neighbor, offset_to_neighbor);
+
+            if (distance_squared <= smoothing_radius_squared)
+            {
+                float distance_to_neighbor = sqrt(distance_squared);
+                float influence_weight = SmoothingKernelPoly6(distance_to_neighbor, u_smoothing_radius);
+                velocity_sum += velocities[sorted_index].xyz * influence_weight;
+                weight_sum += influence_weight;
+                neighbor_count += 1;
+            }
+
+            sorted_index += 1u;
+        }
+    }
+
+    bool is_spray = neighbor_count <= u_spray_classify_maximum_neighbors;
+    bool is_bubble = neighbor_count >= u_bubble_classify_minimum_neighbors;
+    bool is_foam = !(is_spray || is_bubble);
+    vec3 average_velocity = weight_sum > 0.0001 ? velocity_sum / weight_sum : velocity;
+
+    if (is_foam)
+    {
+        velocity = average_velocity;
+        lifetime -= u_delta_time;
+    }
+    else if (is_bubble)
+    {
+        const float fluid_acceleration_multiplier = 3.0;
+        vec3 buoyancy_acceleration = vec3(0.0, u_gravity, 0.0) * (1.0 - u_bubble_buoyancy);
+        vec3 fluid_acceleration = (average_velocity - velocity) * fluid_acceleration_multiplier;
+        velocity += (buoyancy_acceleration + fluid_acceleration) * u_delta_time;
+    }
+    else
+    {
+        const float drag_multiplier = 0.04;
+        float speed_squared = dot(velocity, velocity);
+        vec3 drag = speed_squared > 0.0001 ? -normalize(velocity) * speed_squared * drag_multiplier : vec3(0.0);
+        velocity += (vec3(0.0, u_gravity, 0.0) + drag) * u_delta_time;
+    }
+
+    scale = mix(scale, is_bubble ? u_bubble_scale : 1.0, u_delta_time * u_bubble_scale_change_speed);
+    position += velocity * u_delta_time;
+    ResolveCollisions(position, velocity);
+
+    particle.position_and_scale = vec4(position, scale);
+    particle.velocity_and_lifetime = vec4(velocity, lifetime);
+
+    if (lifetime > 0.0)
+    {
+        uint survivor_index = atomicAdd(whitewater_counters[1], 1u);
+        if (survivor_index < uint(u_maximum_whitewater_count))
+        {
+            whitewater_compacted_particles[survivor_index] = particle;
+        }
+    }
+}

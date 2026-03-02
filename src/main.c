@@ -16,6 +16,7 @@
 #include "simulation_step.h"
 #include "simulation_viscosity.h"
 #include "simulation_volume_density.h"
+#include "simulation_whitewater.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
@@ -51,6 +52,8 @@ typedef struct Application
     SimulationSpatialHashSettings spatial_hash_settings;
     SimulationVolumeDensity volume_density;
     SimulationVolumeDensitySettings volume_density_settings;
+    SimulationWhitewater whitewater;
+    SimulationWhitewaterSettings whitewater_settings;
     Vec3 simulation_bounds_size;
     SimulationSpawnData initial_spawn_data;
     bool reset_requested;
@@ -64,12 +67,14 @@ typedef struct Application
     f32 window_title_update_accumulator_seconds;
     f32 most_recent_frame_delta_time_seconds;
     f32 most_recent_swap_buffers_milliseconds;
+    u32 most_recent_whitewater_particle_count;
     SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode;
     SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode;
     f32 density_visualization_minimum;
     f32 density_visualization_maximum;
+    f32 simulation_time_seconds;
 } Application;
 
 // == Constants =======================================================================================================
@@ -183,6 +188,11 @@ int main(void)
     }
 
     if (!SimulationVolumeDensity_RunValidation())
+    {
+        return 1;
+    }
+
+    if (!SimulationWhitewater_RunValidation())
     {
         return 1;
     }
@@ -610,6 +620,8 @@ static bool Application_InitializeSimulationView(Application *application)
     application->velocity_visualization_maximum = 1.0f;
     application->window_title_update_accumulator_seconds = 0.0f;
     application->most_recent_frame_delta_time_seconds = 0.0f;
+    application->simulation_time_seconds = 0.0f;
+    application->most_recent_whitewater_particle_count = 0u;
     application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
     application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
     application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN;
@@ -639,6 +651,24 @@ static bool Application_InitializeSimulationView(Application *application)
     application->volume_density_settings.resolution_y = 24;
     application->volume_density_settings.resolution_z = 24;
     application->volume_density_settings.density_scale = 1.0f;
+    application->whitewater_settings.maximum_particle_count = 16384u;
+    application->whitewater_settings.spawn_rate = 70.0f;
+    application->whitewater_settings.trapped_air_velocity_minimum = 5.0f;
+    application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
+    application->whitewater_settings.kinetic_energy_minimum = 15.0f;
+    application->whitewater_settings.kinetic_energy_maximum = 80.0f;
+    application->whitewater_settings.target_density = application->pressure_settings.target_density;
+    application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
+    application->whitewater_settings.gravity = application->step_settings.gravity;
+    application->whitewater_settings.delta_time_seconds = application->fixed_simulation_delta_time_seconds;
+    application->whitewater_settings.bubble_buoyancy = 1.4f;
+    application->whitewater_settings.spray_classify_maximum_neighbors = 5;
+    application->whitewater_settings.bubble_classify_minimum_neighbors = 15;
+    application->whitewater_settings.bubble_scale = 0.3f;
+    application->whitewater_settings.bubble_scale_change_speed = 7.0f;
+    application->whitewater_settings.collision_damping = 0.10f;
+    application->whitewater_settings.bounds_size = application->simulation_bounds_size;
+    application->whitewater_settings.simulation_time_seconds = 0.0f;
     application->pipeline_settings.substeps_per_simulation_step = 3;
     application->pipeline_settings.time_scale = 1.0f;
     application->pipeline_settings.step_settings = application->step_settings;
@@ -664,6 +694,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
     Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
+    Base_LogInfo("Whitewater: enabled with spawn/update modeled after Example Code.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
 }
@@ -681,6 +712,7 @@ static void Application_ShutdownSimulationResources(Application *application)
     SimulationViscosity_Shutdown(&application->viscosity);
     SimulationSpatialHash_Shutdown(&application->spatial_hash);
     SimulationVolumeDensity_Shutdown(&application->volume_density);
+    SimulationWhitewater_Shutdown(&application->whitewater);
     Simulation_DestroyParticleBuffers(&application->particle_buffers);
 }
 
@@ -693,7 +725,13 @@ static bool Application_InitializeSimulationResources(Application *application)
         return false;
     }
 
-    if (!SimulationRenderer_Initialize(&application->renderer, &application->particle_buffers))
+    if (!SimulationWhitewater_Initialize(&application->whitewater, application->whitewater_settings.maximum_particle_count))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationRenderer_Initialize(&application->renderer, &application->particle_buffers, &application->whitewater))
     {
         Application_ShutdownSimulationResources(application);
         return false;
@@ -836,6 +874,20 @@ static bool Application_RunSimulationFixedStep(Application *application, f32 sim
         return false;
     }
 
+    application->simulation_time_seconds += simulation_delta_time_seconds * application->pipeline_settings.time_scale;
+    application->whitewater_settings.delta_time_seconds = simulation_delta_time_seconds * application->pipeline_settings.time_scale;
+    application->whitewater_settings.simulation_time_seconds = application->simulation_time_seconds;
+    application->whitewater_settings.smoothing_radius = application->pipeline_settings.density_settings.smoothing_radius;
+    application->whitewater_settings.gravity = application->pipeline_settings.step_settings.gravity;
+    application->whitewater_settings.target_density = application->pipeline_settings.pressure_settings.target_density;
+    application->whitewater_settings.bounds_size = application->pipeline_settings.collision_settings.bounds_size;
+
+    if (!SimulationWhitewater_Run(&application->whitewater, &application->particle_buffers, application->whitewater_settings))
+    {
+        Base_LogError("Whitewater update failed.");
+        return false;
+    }
+
     return true;
 }
 
@@ -848,6 +900,7 @@ static void Application_ResetSimulation(Application *application)
     Application_ShutdownSimulationResources(application);
     application->simulation_accumulator_seconds = 0.0f;
     application->simulation_single_step_requested = false;
+    application->simulation_time_seconds = 0.0f;
 
     if (!Application_InitializeSimulationResources(application))
     {
@@ -1244,6 +1297,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
     SimulationRenderer_Render(
         &application->renderer,
         &application->particle_buffers,
+        &application->whitewater,
         &application->volume_density,
         application->camera,
         application->simulation_bounds_size,
@@ -1328,12 +1382,19 @@ static void Application_UpdateWindowTitle(Application *application)
         frame_rate = 1.0f / application->most_recent_frame_delta_time_seconds;
     }
 
+    if (!SimulationWhitewater_ReadActiveParticleCount(
+            &application->whitewater,
+            &application->most_recent_whitewater_particle_count))
+    {
+        application->most_recent_whitewater_particle_count = 0u;
+    }
+
     if (version_name != NULL)
     {
         snprintf(
             title_buffer,
             sizeof(title_buffer),
-            "FluidSim | %s | %s | %.0f FPS | sim %.2f ms | rnd %.2f ms | swap %.2f | grnd %.2f | gblur %.2f | gcomp %.2f | hash %.2f | dens %.2f | pres %.2f | GL %s",
+            "FluidSim | %s | %s | %.0f FPS | sim %.2f ms | rnd %.2f ms | swap %.2f | grnd %.2f | gblur %.2f | gcomp %.2f | hash %.2f | dens %.2f | pres %.2f | ww %u | GL %s",
             application->simulation_is_paused ? "paused" : "running",
             Application_GetRenderModeName(application->render_mode),
             frame_rate,
@@ -1346,6 +1407,7 @@ static void Application_UpdateWindowTitle(Application *application)
             (f32) application->pipeline.last_debug_timings.spatial_hash_milliseconds,
             (f32) application->pipeline.last_debug_timings.density_milliseconds,
             (f32) application->pipeline.last_debug_timings.pressure_milliseconds,
+            application->most_recent_whitewater_particle_count,
             version_name);
     }
     else

@@ -1,0 +1,239 @@
+#version 430 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct WhitewaterParticle
+{
+    vec4 position_and_scale;
+    vec4 velocity_and_lifetime;
+};
+
+layout(std430, binding = 0) buffer ParticlePredictedPositions
+{
+    vec4 predicted_positions[];
+};
+
+layout(std430, binding = 1) buffer ParticleVelocities
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 2) buffer ParticleDensities
+{
+    vec4 densities[];
+};
+
+layout(std430, binding = 3) buffer SpatialKeys
+{
+    uint spatial_keys[];
+};
+
+layout(std430, binding = 4) buffer SpatialHashes
+{
+    uint spatial_hashes[];
+};
+
+layout(std430, binding = 5) buffer SpatialOffsets
+{
+    uint spatial_offsets[];
+};
+
+layout(std430, binding = 6) buffer WhitewaterParticles
+{
+    WhitewaterParticle whitewater_particles[];
+};
+
+layout(std430, binding = 7) buffer WhitewaterCounters
+{
+    uint whitewater_counters[];
+};
+
+uniform int u_particle_count;
+uniform int u_table_size;
+uniform int u_maximum_whitewater_count;
+uniform float u_delta_time;
+uniform float u_simulation_time;
+uniform float u_spawn_rate;
+uniform float u_trapped_air_velocity_minimum;
+uniform float u_trapped_air_velocity_maximum;
+uniform float u_kinetic_energy_minimum;
+uniform float u_kinetic_energy_maximum;
+uniform float u_target_density;
+uniform float u_smoothing_radius;
+
+const uint HASH_K1 = 15823u;
+const uint HASH_K2 = 9737333u;
+const uint HASH_K3 = 440817757u;
+
+const ivec3 OFFSETS_3D[27] = ivec3[](
+    ivec3(-1, -1, -1), ivec3(0, -1, -1), ivec3(1, -1, -1),
+    ivec3(-1,  0, -1), ivec3(0,  0, -1), ivec3(1,  0, -1),
+    ivec3(-1,  1, -1), ivec3(0,  1, -1), ivec3(1,  1, -1),
+    ivec3(-1, -1,  0), ivec3(0, -1,  0), ivec3(1, -1,  0),
+    ivec3(-1,  0,  0), ivec3(0,  0,  0), ivec3(1,  0,  0),
+    ivec3(-1,  1,  0), ivec3(0,  1,  0), ivec3(1,  1,  0),
+    ivec3(-1, -1,  1), ivec3(0, -1,  1), ivec3(1, -1,  1),
+    ivec3(-1,  0,  1), ivec3(0,  0,  1), ivec3(1,  0,  1),
+    ivec3(-1,  1,  1), ivec3(0,  1,  1), ivec3(1,  1,  1)
+);
+
+uint HashCell3D(ivec3 cell)
+{
+    uvec3 unsigned_cell = uvec3(uint(cell.x), uint(cell.y), uint(cell.z));
+    return unsigned_cell.x * HASH_K1 ^ unsigned_cell.y * HASH_K2 ^ unsigned_cell.z * HASH_K3;
+}
+
+float SmoothingKernelPoly6(float distance_to_neighbor, float smoothing_radius)
+{
+    if (distance_to_neighbor >= smoothing_radius) return 0.0;
+    float remaining_distance = smoothing_radius * smoothing_radius - distance_to_neighbor * distance_to_neighbor;
+    float scale = 315.0 / (64.0 * 3.14159265 * pow(smoothing_radius, 9.0));
+    return remaining_distance * remaining_distance * remaining_distance * scale;
+}
+
+float Remap01(float value, float minimum_value, float maximum_value)
+{
+    float denominator = maximum_value - minimum_value;
+    if (abs(denominator) < 0.0001) return 0.0;
+    return clamp((value - minimum_value) / denominator, 0.0, 1.0);
+}
+
+uint HashRandom(uint state)
+{
+    state ^= 2747636419u;
+    state *= 2654435769u;
+    state ^= state >> 16u;
+    state *= 2654435769u;
+    state ^= state >> 16u;
+    state *= 2654435769u;
+    return state;
+}
+
+float RandomValue(inout uint state)
+{
+    state = HashRandom(state);
+    return float(state) / 4294967295.0;
+}
+
+vec3 CalculateOrthonormal(vec3 direction)
+{
+    vec3 axis = abs(direction.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    return normalize(cross(normalize(direction), axis));
+}
+
+void main(void)
+{
+    uint particle_index = gl_GlobalInvocationID.x;
+    if (particle_index >= uint(u_particle_count))
+    {
+        return;
+    }
+
+    vec3 position = predicted_positions[particle_index].xyz;
+    vec3 velocity = velocities[particle_index].xyz;
+    float speed_squared = dot(velocity, velocity);
+
+    if (speed_squared < 0.0001)
+    {
+        return;
+    }
+
+    ivec3 origin_cell = ivec3(floor(position / u_smoothing_radius));
+    float smoothing_radius_squared = u_smoothing_radius * u_smoothing_radius;
+    float velocity_difference_sum = 0.0;
+    float influence_weight_sum = 0.0;
+
+    for (int offset_index = 0; offset_index < 27; offset_index++)
+    {
+        ivec3 neighbor_cell = origin_cell + OFFSETS_3D[offset_index];
+        uint hash = HashCell3D(neighbor_cell);
+        uint key = hash % uint(u_table_size);
+        uint sorted_index = spatial_offsets[key];
+
+        while (sorted_index < uint(u_particle_count))
+        {
+            if (spatial_keys[sorted_index] != key)
+            {
+                break;
+            }
+
+            if (spatial_hashes[sorted_index] != hash)
+            {
+                sorted_index += 1u;
+                continue;
+            }
+
+            if (sorted_index == particle_index)
+            {
+                sorted_index += 1u;
+                continue;
+            }
+
+            vec3 neighbor_position = predicted_positions[sorted_index].xyz;
+            vec3 offset_to_neighbor = neighbor_position - position;
+            float distance_squared = dot(offset_to_neighbor, offset_to_neighbor);
+
+            if (distance_squared <= smoothing_radius_squared)
+            {
+                float distance_to_neighbor = sqrt(distance_squared);
+                float influence_weight = SmoothingKernelPoly6(distance_to_neighbor, u_smoothing_radius);
+                vec3 neighbor_velocity = velocities[sorted_index].xyz;
+                velocity_difference_sum += length(neighbor_velocity - velocity) * influence_weight;
+                influence_weight_sum += influence_weight;
+            }
+
+            sorted_index += 1u;
+        }
+    }
+
+    float weighted_velocity_difference = velocity_difference_sum / max(influence_weight_sum, 0.0001);
+    float trapped_air_factor =
+        u_spawn_rate * Remap01(
+            weighted_velocity_difference,
+            u_trapped_air_velocity_minimum,
+            u_trapped_air_velocity_maximum);
+    float kinetic_energy_factor = Remap01(
+        speed_squared,
+        u_kinetic_energy_minimum,
+        u_kinetic_energy_maximum);
+    float spawn_factor = trapped_air_factor * kinetic_energy_factor * u_delta_time;
+
+    int spawn_count = int(floor(spawn_factor));
+    float fractional_spawn_remainder = spawn_factor - float(spawn_count);
+    uint random_state = HashRandom(particle_index + uint(u_simulation_time * 1000.0));
+    if (RandomValue(random_state) < fractional_spawn_remainder)
+    {
+        spawn_count += 1;
+    }
+
+    if (spawn_count <= 0)
+    {
+        return;
+    }
+
+    uint base_particle_index = atomicAdd(whitewater_counters[0], uint(spawn_count));
+
+    vec3 cylinder_base = position;
+    vec3 cylinder_top = position + velocity * u_delta_time;
+    vec3 cylinder_axis_a = CalculateOrthonormal(velocity);
+    vec3 cylinder_axis_b = normalize(cross(cylinder_axis_a, velocity));
+
+    for (int spawn_index = 0; spawn_index < spawn_count; spawn_index++)
+    {
+        uint whitewater_index = base_particle_index + uint(spawn_index);
+        if (whitewater_index >= uint(u_maximum_whitewater_count))
+        {
+            whitewater_counters[0] = uint(u_maximum_whitewater_count);
+            break;
+        }
+
+        float random_angle = RandomValue(random_state) * 6.2831853;
+        vec3 offset_direction = cos(random_angle) * cylinder_axis_a + sin(random_angle) * cylinder_axis_b;
+        vec3 base_offset = sqrt(RandomValue(random_state)) * u_smoothing_radius * offset_direction;
+        vec3 spawn_position = cylinder_base + base_offset + (cylinder_top - cylinder_base) * RandomValue(random_state);
+        float lifetime = mix(5.0, 15.0, RandomValue(random_state));
+
+        whitewater_particles[whitewater_index].position_and_scale = vec4(spawn_position, 0.65);
+        whitewater_particles[whitewater_index].velocity_and_lifetime = vec4(velocity + base_offset, lifetime);
+    }
+}
