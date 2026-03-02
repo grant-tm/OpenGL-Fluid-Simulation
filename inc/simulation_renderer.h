@@ -16,6 +16,16 @@ typedef struct SimulationCamera
     Vec3 target;
 } SimulationCamera;
 
+typedef struct SimulationScaleModel
+{
+    f32 particle_spacing;
+    f32 smoothing_radius;
+    f32 screen_fluid_thickness_particle_radius;
+    f32 screen_fluid_depth_particle_radius;
+    f32 screen_fluid_blur_world_radius;
+    f32 whitewater_billboard_scale;
+} SimulationScaleModel;
+
 typedef struct SimulationRenderer
 {
     struct SimulationRendererDebugTimings
@@ -191,6 +201,7 @@ void SimulationRenderer_Render (
     const SimulationVolumeDensity *volume_density,
     SimulationCamera camera,
     Vec3 simulation_bounds_size,
+    SimulationScaleModel scale_model,
     SimulationRenderMode render_mode,
     SimulationParticleVisualizationMode particle_visualization_mode,
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,

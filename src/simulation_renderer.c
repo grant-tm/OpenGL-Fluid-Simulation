@@ -25,7 +25,8 @@ static void SimulationRenderer_DrawWhitewaterToFoamTexture (
     SimulationRenderer *renderer,
     const SimulationWhitewater *whitewater,
     Mat4 projection_matrix,
-    Mat4 view_matrix);
+    Mat4 view_matrix,
+    SimulationScaleModel scale_model);
 
 static Mat4 SimulationRenderer_CreateInversePerspective (Mat4 projection_matrix)
 {
@@ -789,7 +790,7 @@ static void SimulationRenderer_DrawParticles (
 
 static void SimulationRenderer_DrawScreenFluid (
     SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers, const SimulationWhitewater *whitewater, Mat4 projection_matrix, Mat4 view_matrix,
-    Mat4 inverse_view_matrix, Vec3 simulation_bounds_size, Vec3 camera_position,
+    Mat4 inverse_view_matrix, Vec3 simulation_bounds_size, Vec3 camera_position, SimulationScaleModel scale_model,
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
     SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode,
     i32 viewport_width, i32 viewport_height)
@@ -802,9 +803,9 @@ static void SimulationRenderer_DrawScreenFluid (
     Mat4 inverse_projection_matrix;
     SimulationLightMatrices light_matrices;
     Base_Assert(whitewater != NULL);
-    const f32 thickness_particle_radius = 0.175f;
-    const f32 depth_particle_radius = 0.25f;
-    const f32 blur_world_radius = 0.26f;
+    const f32 thickness_particle_radius = scale_model.screen_fluid_thickness_particle_radius;
+    const f32 depth_particle_radius = scale_model.screen_fluid_depth_particle_radius;
+    const f32 blur_world_radius = scale_model.screen_fluid_blur_world_radius;
     const i32 blur_max_screen_radius = 32;
     const i32 blur_iteration_count = 5;
     const f32 blur_strength = 0.45f;
@@ -888,7 +889,7 @@ static void SimulationRenderer_DrawScreenFluid (
     glDepthMask(GL_TRUE);
     glClearColor(0.0f, 1.0f, 10000.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    SimulationRenderer_DrawWhitewaterToFoamTexture(renderer, whitewater, projection_matrix, view_matrix);
+    SimulationRenderer_DrawWhitewaterToFoamTexture(renderer, whitewater, projection_matrix, view_matrix, scale_model);
 
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier, 0);
@@ -1139,7 +1140,8 @@ static void SimulationRenderer_DrawWhitewaterToFoamTexture (
     SimulationRenderer *renderer,
     const SimulationWhitewater *whitewater,
     Mat4 projection_matrix,
-    Mat4 view_matrix)
+    Mat4 view_matrix,
+    SimulationScaleModel scale_model)
 {
     Base_Assert(renderer != NULL);
     Base_Assert(whitewater != NULL);
@@ -1152,7 +1154,7 @@ static void SimulationRenderer_DrawWhitewaterToFoamTexture (
     glUseProgram(renderer->whitewater_program_identifier);
     glUniformMatrix4fv(renderer->whitewater_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->whitewater_view_uniform, 1, GL_FALSE, view_matrix.elements);
-    glUniform1f(renderer->whitewater_scale_uniform, 0.04f);
+    glUniform1f(renderer->whitewater_scale_uniform, scale_model.whitewater_billboard_scale);
     glBindVertexArray(renderer->whitewater_vao_identifier);
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei) whitewater->maximum_particle_count);
 }
@@ -1305,6 +1307,7 @@ void SimulationRenderer_Render (
     const SimulationVolumeDensity *volume_density,
     SimulationCamera camera,
     Vec3 simulation_bounds_size,
+    SimulationScaleModel scale_model,
     SimulationRenderMode render_mode,
     SimulationParticleVisualizationMode particle_visualization_mode,
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
@@ -1397,6 +1400,7 @@ void SimulationRenderer_Render (
             camera_matrices.inverse_view_matrix,
             simulation_bounds_size,
             camera_matrices.position,
+            scale_model,
             screen_fluid_visualization_mode,
             screen_fluid_smoothing_mode,
             viewport_width,

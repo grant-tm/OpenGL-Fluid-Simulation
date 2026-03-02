@@ -54,6 +54,7 @@ typedef struct Application
     SimulationVolumeDensitySettings volume_density_settings;
     SimulationWhitewater whitewater;
     SimulationWhitewaterSettings whitewater_settings;
+    SimulationScaleModel scale_model;
     Vec3 simulation_bounds_size;
     SimulationSpawnData initial_spawn_data;
     bool reset_requested;
@@ -89,6 +90,7 @@ static bool Win32_RegisterWindowClass(HINSTANCE instance_handle);
 static bool Win32_CreateWindowAndContext(Application *application, i32 client_width, i32 client_height);
 static void Win32_DestroyWindowAndContext(Application *application);
 static bool Application_InitializeSimulationView(Application *application);
+static void Application_InitializeScaleModel(Application *application);
 static void Application_ShutdownSimulationResources(Application *application);
 static bool Application_InitializeSimulationResources(Application *application);
 static bool Application_RunInitializationWarmup(Application *application);
@@ -112,6 +114,29 @@ static void Application_Run(Application *application);
 static void Application_UpdateWindowTitle(Application *application);
 
 // == Entry Point =====================================================================================================
+
+static void Application_InitializeScaleModel(Application *application)
+{
+    const f32 smoothing_radius_to_particle_spacing_ratio = 3.125f;
+    const f32 thickness_radius_to_smoothing_radius_ratio = 0.35f;
+    const f32 depth_radius_to_smoothing_radius_ratio = 0.50f;
+    const f32 blur_radius_to_smoothing_radius_ratio = 0.52f;
+    const f32 whitewater_scale_to_particle_spacing_ratio = 0.25f;
+
+    Base_Assert(application != NULL);
+
+    application->scale_model.particle_spacing = 0.16f;
+    application->scale_model.smoothing_radius =
+        application->scale_model.particle_spacing * smoothing_radius_to_particle_spacing_ratio;
+    application->scale_model.screen_fluid_thickness_particle_radius =
+        application->scale_model.smoothing_radius * thickness_radius_to_smoothing_radius_ratio;
+    application->scale_model.screen_fluid_depth_particle_radius =
+        application->scale_model.smoothing_radius * depth_radius_to_smoothing_radius_ratio;
+    application->scale_model.screen_fluid_blur_world_radius =
+        application->scale_model.smoothing_radius * blur_radius_to_smoothing_radius_ratio;
+    application->scale_model.whitewater_billboard_scale =
+        application->scale_model.particle_spacing * whitewater_scale_to_particle_spacing_ratio;
+}
 
 int main(void)
 {
@@ -597,9 +622,11 @@ static void Win32_DestroyWindowAndContext(Application *application)
 static bool Application_InitializeSimulationView(Application *application)
 {
     SimulationSpawnBox spawn_box = {0};
+    Application_InitializeScaleModel(application);
+
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
-    spawn_box.particle_spacing = 0.16f;
+    spawn_box.particle_spacing = application->scale_model.particle_spacing;
     spawn_box.position_jitter_scale = 0.08f;
     spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
 
@@ -635,18 +662,18 @@ static bool Application_InitializeSimulationView(Application *application)
     application->step_settings.time_scale = 1.0f;
     application->step_settings.maximum_delta_time = 1.0f / 60.0f;
     application->step_settings.iterations_per_frame = 3;
-    application->density_settings.smoothing_radius = 0.5f;
+    application->density_settings.smoothing_radius = application->scale_model.smoothing_radius;
     application->collision_settings.bounds_size = application->simulation_bounds_size;
     application->collision_settings.collision_damping = 0.85f;
-    application->pressure_settings.smoothing_radius = 0.5f;
+    application->pressure_settings.smoothing_radius = application->scale_model.smoothing_radius;
     application->pressure_settings.target_density = 6.0f;
     application->pressure_settings.pressure_multiplier = 18.0f;
     application->pressure_settings.near_pressure_multiplier = 8.0f;
-    application->viscosity_settings.smoothing_radius = 0.5f;
+    application->viscosity_settings.smoothing_radius = application->scale_model.smoothing_radius;
     application->viscosity_settings.viscosity_strength = 0.12f;
-    application->spatial_hash_settings.cell_size = 0.5f;
+    application->spatial_hash_settings.cell_size = application->scale_model.smoothing_radius;
     application->volume_density_settings.bounds_size = application->simulation_bounds_size;
-    application->volume_density_settings.smoothing_radius = 0.5f;
+    application->volume_density_settings.smoothing_radius = application->scale_model.smoothing_radius;
     application->volume_density_settings.resolution_x = 24;
     application->volume_density_settings.resolution_y = 24;
     application->volume_density_settings.resolution_z = 24;
@@ -660,7 +687,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->whitewater_settings.kinetic_energy_minimum = 15.0f;
     application->whitewater_settings.kinetic_energy_maximum = 30.0f;
     application->whitewater_settings.target_density = application->pressure_settings.target_density;
-    application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
+    application->whitewater_settings.smoothing_radius = application->scale_model.smoothing_radius;
     application->whitewater_settings.gravity = application->step_settings.gravity;
     application->whitewater_settings.delta_time_seconds = application->fixed_simulation_delta_time_seconds;
     application->whitewater_settings.bubble_buoyancy = 1.4f;
@@ -679,6 +706,15 @@ static bool Application_InitializeSimulationView(Application *application)
     application->pipeline_settings.pressure_settings = application->pressure_settings;
     application->pipeline_settings.viscosity_settings = application->viscosity_settings;
     application->pipeline_settings.collision_settings = application->collision_settings;
+
+    Base_LogInfo(
+        "Scale model: spacing=%.3f smoothing=%.3f fluid_thickness=%.3f fluid_depth=%.3f blur=%.3f foam=%.3f",
+        application->scale_model.particle_spacing,
+        application->scale_model.smoothing_radius,
+        application->scale_model.screen_fluid_thickness_particle_radius,
+        application->scale_model.screen_fluid_depth_particle_radius,
+        application->scale_model.screen_fluid_blur_world_radius,
+        application->scale_model.whitewater_billboard_scale);
 
     if (!Application_InitializeSimulationResources(application))
     {
@@ -1314,6 +1350,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         &application->volume_density,
         application->camera,
         application->simulation_bounds_size,
+        application->scale_model,
         application->render_mode,
         application->particle_visualization_mode,
         application->screen_fluid_visualization_mode,
