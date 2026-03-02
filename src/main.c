@@ -63,6 +63,7 @@ typedef struct Application
     f32 velocity_visualization_maximum;
     f32 window_title_update_accumulator_seconds;
     f32 most_recent_frame_delta_time_seconds;
+    f32 most_recent_swap_buffers_milliseconds;
     SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode;
@@ -1216,6 +1217,10 @@ static void OpenGL_UpdateViewport(Application *application)
 
 static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
 {
+    LARGE_INTEGER performance_frequency = {0};
+    LARGE_INTEGER swap_start_counter = {0};
+    LARGE_INTEGER swap_end_counter = {0};
+
     if (application->was_resized)
     {
         OpenGL_UpdateViewport(application);
@@ -1252,7 +1257,15 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         application->velocity_visualization_maximum,
         application->client_width,
         application->client_height);
+    QueryPerformanceFrequency(&performance_frequency);
+    QueryPerformanceCounter(&swap_start_counter);
     SwapBuffers(application->device_context_handle);
+    QueryPerformanceCounter(&swap_end_counter);
+    application->most_recent_swap_buffers_milliseconds = (f32)
+        (
+            ((f64) (swap_end_counter.QuadPart - swap_start_counter.QuadPart) * 1000.0) /
+            (f64) performance_frequency.QuadPart
+        );
 
     application->window_title_update_accumulator_seconds += delta_time_seconds;
     if (application->window_title_update_accumulator_seconds >= 0.25f)
@@ -1320,16 +1333,19 @@ static void Application_UpdateWindowTitle(Application *application)
         snprintf(
             title_buffer,
             sizeof(title_buffer),
-            "FluidSim | %s | %s | %.0f FPS | sim %.2f ms | hash %.2f | dens %.2f | pres %.2f | visc %.2f | coll %.2f | GL %s",
+            "FluidSim | %s | %s | %.0f FPS | sim %.2f ms | rnd %.2f ms | swap %.2f | grnd %.2f | gblur %.2f | gcomp %.2f | hash %.2f | dens %.2f | pres %.2f | GL %s",
             application->simulation_is_paused ? "paused" : "running",
             Application_GetRenderModeName(application->render_mode),
             frame_rate,
             (f32) application->pipeline.last_debug_timings.total_milliseconds,
+            (f32) application->renderer.last_debug_timings.total_milliseconds,
+            application->most_recent_swap_buffers_milliseconds,
+            (f32) application->renderer.last_debug_timings.gpu_total_milliseconds,
+            (f32) application->renderer.last_debug_timings.gpu_blur_milliseconds,
+            (f32) application->renderer.last_debug_timings.gpu_composite_milliseconds,
             (f32) application->pipeline.last_debug_timings.spatial_hash_milliseconds,
             (f32) application->pipeline.last_debug_timings.density_milliseconds,
             (f32) application->pipeline.last_debug_timings.pressure_milliseconds,
-            (f32) application->pipeline.last_debug_timings.viscosity_milliseconds,
-            (f32) application->pipeline.last_debug_timings.collision_milliseconds,
             version_name);
     }
     else

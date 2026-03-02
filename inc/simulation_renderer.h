@@ -5,6 +5,8 @@
 #include "simulation_data.h"
 #include "simulation_volume_density.h"
 
+#define SIMULATION_RENDERER_GPU_QUERY_RING_SIZE 4
+
 typedef struct SimulationCamera
 {
     f32 yaw_radians;
@@ -15,6 +17,35 @@ typedef struct SimulationCamera
 
 typedef struct SimulationRenderer
 {
+    struct SimulationRendererDebugTimings
+    {
+        f64 bounds_milliseconds;
+        f64 particles_milliseconds;
+        f64 scene_copy_milliseconds;
+        f64 shadow_milliseconds;
+        f64 surface_inputs_milliseconds;
+        f64 prepare_milliseconds;
+        f64 blur_milliseconds;
+        f64 normal_milliseconds;
+        f64 composite_milliseconds;
+        f64 total_milliseconds;
+        f64 gpu_scene_copy_milliseconds;
+        f64 gpu_shadow_milliseconds;
+        f64 gpu_surface_inputs_milliseconds;
+        f64 gpu_blur_milliseconds;
+        f64 gpu_normal_milliseconds;
+        f64 gpu_composite_milliseconds;
+        f64 gpu_total_milliseconds;
+    } last_debug_timings;
+    u32 gpu_scene_copy_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_shadow_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_surface_inputs_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_blur_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_normal_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_composite_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_total_start_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_total_end_query_identifiers[SIMULATION_RENDERER_GPU_QUERY_RING_SIZE];
+    u32 gpu_query_frame_index;
     u32 particle_program_identifier;
     u32 line_program_identifier;
     u32 screen_fluid_thickness_program_identifier;

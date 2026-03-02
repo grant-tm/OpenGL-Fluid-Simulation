@@ -76,6 +76,69 @@ static SimulationLightMatrices SimulationRenderer_CreateLightMatrices (Vec3 simu
     return result;
 }
 
+static f64 SimulationRenderer_GetMillisecondsBetweenCounters (
+    LARGE_INTEGER start_counter,
+    LARGE_INTEGER end_counter,
+    LARGE_INTEGER frequency)
+{
+    return
+        ((f64) (end_counter.QuadPart - start_counter.QuadPart) * 1000.0) /
+        (f64) frequency.QuadPart;
+}
+
+static void SimulationRenderer_BeginGpuTimerQuery (u32 query_identifier)
+{
+    if (query_identifier == 0) return;
+    glBeginQuery(GL_TIME_ELAPSED, query_identifier);
+}
+
+static void SimulationRenderer_EndGpuTimerQuery (u32 query_identifier)
+{
+    if (query_identifier == 0) return;
+    glEndQuery(GL_TIME_ELAPSED);
+}
+
+static void SimulationRenderer_ReadGpuTimerQuery (u32 query_identifier, f64 *milliseconds_value)
+{
+    GLuint query_result_available = GL_FALSE;
+    GLuint64 elapsed_nanoseconds = 0;
+
+    Base_Assert(milliseconds_value != NULL);
+
+    if (query_identifier == 0) return;
+
+    glGetQueryObjectuiv(query_identifier, GL_QUERY_RESULT_AVAILABLE, &query_result_available);
+    if (query_result_available == GL_FALSE) return;
+
+    glGetQueryObjectui64v(query_identifier, GL_QUERY_RESULT, &elapsed_nanoseconds);
+    *milliseconds_value = (f64) elapsed_nanoseconds / 1000000.0;
+}
+
+static void SimulationRenderer_ReadGpuTimestampRange (
+    u32 start_query_identifier,
+    u32 end_query_identifier,
+    f64 *milliseconds_value)
+{
+    GLuint start_query_result_available = GL_FALSE;
+    GLuint end_query_result_available = GL_FALSE;
+    GLuint64 start_timestamp_nanoseconds = 0;
+    GLuint64 end_timestamp_nanoseconds = 0;
+
+    Base_Assert(milliseconds_value != NULL);
+
+    if (start_query_identifier == 0 || end_query_identifier == 0) return;
+
+    glGetQueryObjectuiv(start_query_identifier, GL_QUERY_RESULT_AVAILABLE, &start_query_result_available);
+    glGetQueryObjectuiv(end_query_identifier, GL_QUERY_RESULT_AVAILABLE, &end_query_result_available);
+    if (start_query_result_available == GL_FALSE || end_query_result_available == GL_FALSE) return;
+
+    glGetQueryObjectui64v(start_query_identifier, GL_QUERY_RESULT, &start_timestamp_nanoseconds);
+    glGetQueryObjectui64v(end_query_identifier, GL_QUERY_RESULT, &end_timestamp_nanoseconds);
+    if (end_timestamp_nanoseconds < start_timestamp_nanoseconds) return;
+
+    *milliseconds_value = (f64) (end_timestamp_nanoseconds - start_timestamp_nanoseconds) / 1000000.0;
+}
+
 static SimulationCameraMatrices SimulationRenderer_CreateCameraMatrices (SimulationCamera camera)
 {
     f32 cosine_yaw = cosf(camera.yaw_radians);
@@ -394,19 +457,19 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_normal_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, texture_width, texture_height, 0, GL_RGBA, GL_FLOAT, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_scene_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -460,19 +523,24 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
 
 static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *renderer, i32 viewport_width, i32 viewport_height)
 {
-    i32 texture_width = viewport_width; if (texture_width < 64) texture_width = 64;
-    i32 texture_height = viewport_height; if (texture_height < 64) texture_height = 64;
+    const f32 screen_fluid_resolution_scale = 0.75f;
+    i32 full_resolution_width = viewport_width;
+    i32 full_resolution_height = viewport_height;
+    i32 texture_width = (i32) ((f32) viewport_width * screen_fluid_resolution_scale);
+    i32 texture_height = (i32) ((f32) viewport_height * screen_fluid_resolution_scale);
     f32 viewport_aspect = (f32) texture_height / (f32) texture_width;
-    i32 thickness_texture_max_width = (1280 < texture_width) ? 1280 : texture_width;
-    i32 thickness_texture_max_height = (((i32) (1280.0f * viewport_aspect)) < texture_height) ?
+    i32 thickness_texture_max_width = (1280 < full_resolution_width) ? 1280 : full_resolution_width;
+    i32 thickness_texture_max_height = (((i32) (1280.0f * viewport_aspect)) < full_resolution_height) ?
         ((i32) (1280.0f * viewport_aspect)) :
-        texture_height;
-    i32 thickness_texture_width = (thickness_texture_max_width > (texture_width / 2)) ?
+        full_resolution_height;
+    i32 thickness_texture_width = (thickness_texture_max_width > (full_resolution_width / 2)) ?
         thickness_texture_max_width :
-        (texture_width / 2);
-    i32 thickness_texture_height = (thickness_texture_max_height > (texture_height / 2)) ?
+        (full_resolution_width / 2);
+    i32 thickness_texture_height = (thickness_texture_max_height > (full_resolution_height / 2)) ?
         thickness_texture_max_height :
-        (texture_height / 2);
+        (full_resolution_height / 2);
+    if (texture_width < 64) texture_width = 64;
+    if (texture_height < 64) texture_height = 64;
     if (thickness_texture_width < 64) thickness_texture_width = 64;
     if (thickness_texture_height < 64) thickness_texture_height = 64;
     if (renderer->screen_fluid_texture_width == texture_width &&
@@ -538,6 +606,14 @@ bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const Simulati
         SimulationRenderer_Shutdown(renderer);
         return false;
     }
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_scene_copy_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_shadow_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_surface_inputs_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_blur_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_normal_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_composite_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_total_start_query_identifiers);
+    glGenQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_total_end_query_identifiers);
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_POINT_SPRITE);
     glEnable(GL_BLEND);
@@ -577,6 +653,14 @@ void SimulationRenderer_Shutdown (SimulationRenderer *renderer)
     if (renderer->screen_fluid_scene_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_scene_texture_identifier);
     if (renderer->screen_fluid_shadow_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_shadow_texture_identifier);
     if (renderer->screen_fluid_shadow_blur_texture_identifier != 0) glDeleteTextures(1, &renderer->screen_fluid_shadow_blur_texture_identifier);
+    if (renderer->gpu_scene_copy_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_scene_copy_query_identifiers);
+    if (renderer->gpu_shadow_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_shadow_query_identifiers);
+    if (renderer->gpu_surface_inputs_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_surface_inputs_query_identifiers);
+    if (renderer->gpu_blur_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_blur_query_identifiers);
+    if (renderer->gpu_normal_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_normal_query_identifiers);
+    if (renderer->gpu_composite_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_composite_query_identifiers);
+    if (renderer->gpu_total_start_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_total_start_query_identifiers);
+    if (renderer->gpu_total_end_query_identifiers[0] != 0) glDeleteQueries(SIMULATION_RENDERER_GPU_QUERY_RING_SIZE, renderer->gpu_total_end_query_identifiers);
     memset(renderer, 0, sizeof(*renderer));
 }
 
@@ -620,6 +704,9 @@ static void SimulationRenderer_DrawScreenFluid (
     SimulationScreenFluidSmoothingMode screen_fluid_smoothing_mode,
     i32 viewport_width, i32 viewport_height)
 {
+    LARGE_INTEGER performance_frequency = {0};
+    LARGE_INTEGER pass_start_counter = {0};
+    LARGE_INTEGER pass_end_counter = {0};
     Vec2 texel_size;
     Vec2 shadow_texel_size;
     Mat4 inverse_projection_matrix;
@@ -632,7 +719,9 @@ static void SimulationRenderer_DrawScreenFluid (
     const f32 blur_strength = 0.45f;
     const f32 blur_difference_strength = 3.7f;
     u32 final_comp_texture_identifier = renderer->screen_fluid_comp_texture_identifier;
+    u32 gpu_query_identifier_index = renderer->gpu_query_frame_index;
     if (!SimulationRenderer_EnsureScreenFluidTargets(renderer, viewport_width, viewport_height)) return;
+    QueryPerformanceFrequency(&performance_frequency);
     inverse_projection_matrix = SimulationRenderer_CreateInversePerspective(projection_matrix);
     light_matrices = SimulationRenderer_CreateLightMatrices(simulation_bounds_size);
     texel_size = Vec2_Create(1.0f / (f32) renderer->screen_fluid_texture_width, 1.0f / (f32) renderer->screen_fluid_texture_height);
@@ -640,12 +729,20 @@ static void SimulationRenderer_DrawScreenFluid (
         1.0f / (f32) renderer->screen_fluid_shadow_texture_width,
         1.0f / (f32) renderer->screen_fluid_shadow_texture_height);
 
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_scene_copy_query_identifiers[gpu_query_identifier_index]);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_scene_texture_identifier);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, renderer->screen_fluid_texture_width, renderer->screen_fluid_texture_height);
     glBindTexture(GL_TEXTURE_2D, 0);
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_scene_copy_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.scene_copy_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_shadow_query_identifiers[gpu_query_identifier_index]);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_shadow_texture_identifier, 0);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
@@ -685,7 +782,13 @@ static void SimulationRenderer_DrawScreenFluid (
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_shadow_blur_texture_identifier);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_shadow_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.shadow_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_surface_inputs_query_identifiers[gpu_query_identifier_index]);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier, 0);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
@@ -718,7 +821,12 @@ static void SimulationRenderer_DrawScreenFluid (
     SimulationRenderer_BindScreenFluidQuadGeometry(renderer, particle_buffers);
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei) particle_buffers->particle_count);
     glDisable(GL_DEPTH_TEST);
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_surface_inputs_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.surface_inputs_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
+    QueryPerformanceCounter(&pass_start_counter);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_blur_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_texture_identifier, 0);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
@@ -734,7 +842,12 @@ static void SimulationRenderer_DrawScreenFluid (
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_thickness_texture_identifier);
     glBindVertexArray(renderer->fullscreen_vao_identifier);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.prepare_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_blur_query_identifiers[gpu_query_identifier_index]);
     glBindFramebuffer(GL_FRAMEBUFFER, renderer->screen_fluid_framebuffer_identifier);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_comp_blur_texture_identifier, 0);
     glDrawBuffer(GL_COLOR_ATTACHMENT0);
@@ -797,7 +910,13 @@ static void SimulationRenderer_DrawScreenFluid (
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }
     }
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_blur_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.blur_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_normal_query_identifiers[gpu_query_identifier_index]);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderer->screen_fluid_normal_texture_identifier, 0);
     glClearColor(0.5f, 0.5f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -809,9 +928,15 @@ static void SimulationRenderer_DrawScreenFluid (
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, final_comp_texture_identifier);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_normal_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.normal_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, viewport_width, viewport_height);
+    QueryPerformanceCounter(&pass_start_counter);
+    SimulationRenderer_BeginGpuTimerQuery(renderer->gpu_composite_query_identifiers[gpu_query_identifier_index]);
     if (screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED ||
         screen_fluid_visualization_mode == SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL)
     {
@@ -869,6 +994,10 @@ static void SimulationRenderer_DrawScreenFluid (
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
     }
+    SimulationRenderer_EndGpuTimerQuery(renderer->gpu_composite_query_identifiers[gpu_query_identifier_index]);
+    QueryPerformanceCounter(&pass_end_counter);
+    renderer->last_debug_timings.composite_milliseconds =
+        SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
 }
 
 static void SimulationRenderer_DrawBounds (SimulationRenderer *renderer, Mat4 projection_matrix, Mat4 view_matrix, Mat4 model_matrix)
@@ -1041,13 +1170,54 @@ void SimulationRenderer_Render (
     i32 viewport_width,
     i32 viewport_height)
 {
+    LARGE_INTEGER performance_frequency = {0};
+    LARGE_INTEGER total_start_counter = {0};
+    LARGE_INTEGER total_end_counter = {0};
+    LARGE_INTEGER pass_start_counter = {0};
+    LARGE_INTEGER pass_end_counter = {0};
     f32 aspect_ratio;
     Mat4 projection_matrix;
     Mat4 bounds_model_matrix;
     SimulationCameraMatrices camera_matrices;
+    u32 gpu_query_identifier_index;
 
     Base_Assert(renderer != NULL);
     Base_Assert(particle_buffers != NULL);
+    renderer->last_debug_timings.bounds_milliseconds = 0.0;
+    renderer->last_debug_timings.particles_milliseconds = 0.0;
+    renderer->last_debug_timings.scene_copy_milliseconds = 0.0;
+    renderer->last_debug_timings.shadow_milliseconds = 0.0;
+    renderer->last_debug_timings.surface_inputs_milliseconds = 0.0;
+    renderer->last_debug_timings.prepare_milliseconds = 0.0;
+    renderer->last_debug_timings.blur_milliseconds = 0.0;
+    renderer->last_debug_timings.normal_milliseconds = 0.0;
+    renderer->last_debug_timings.composite_milliseconds = 0.0;
+    renderer->last_debug_timings.total_milliseconds = 0.0;
+    gpu_query_identifier_index = renderer->gpu_query_frame_index;
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_scene_copy_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_scene_copy_milliseconds);
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_shadow_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_shadow_milliseconds);
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_surface_inputs_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_surface_inputs_milliseconds);
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_blur_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_blur_milliseconds);
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_normal_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_normal_milliseconds);
+    SimulationRenderer_ReadGpuTimerQuery(
+        renderer->gpu_composite_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_composite_milliseconds);
+    SimulationRenderer_ReadGpuTimestampRange(
+        renderer->gpu_total_start_query_identifiers[gpu_query_identifier_index],
+        renderer->gpu_total_end_query_identifiers[gpu_query_identifier_index],
+        &renderer->last_debug_timings.gpu_total_milliseconds);
+    QueryPerformanceFrequency(&performance_frequency);
+    QueryPerformanceCounter(&total_start_counter);
 
     aspect_ratio = (viewport_height > 0) ? ((f32) viewport_width / (f32) viewport_height) : 1.0f;
     projection_matrix = Mat4_Perspective(60.0f * BASE_PI32 / 180.0f, aspect_ratio, 0.1f, 100.0f);
@@ -1062,7 +1232,14 @@ void SimulationRenderer_Render (
 
     if (render_mode == SIMULATION_RENDER_MODE_SCREEN_FLUID)
     {
+        glQueryCounter(renderer->gpu_total_start_query_identifiers[gpu_query_identifier_index], GL_TIMESTAMP);
+        QueryPerformanceCounter(&pass_start_counter);
         SimulationRenderer_DrawBounds(renderer, projection_matrix, camera_matrices.view_matrix, bounds_model_matrix);
+        QueryPerformanceCounter(&pass_end_counter);
+        renderer->last_debug_timings.bounds_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
+
+        QueryPerformanceCounter(&pass_start_counter);
         SimulationRenderer_DrawScreenFluid(
             renderer,
             particle_buffers,
@@ -1075,13 +1252,38 @@ void SimulationRenderer_Render (
             screen_fluid_smoothing_mode,
             viewport_width,
             viewport_height);
+        QueryPerformanceCounter(&pass_end_counter);
+        renderer->last_debug_timings.total_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(total_start_counter, pass_end_counter, performance_frequency);
+        glQueryCounter(renderer->gpu_total_end_query_identifiers[gpu_query_identifier_index], GL_TIMESTAMP);
     }
     else
     {
+        QueryPerformanceCounter(&pass_start_counter);
         SimulationRenderer_DrawParticles(renderer, particle_buffers, projection_matrix, camera_matrices.view_matrix, particle_visualization_mode, density_minimum, density_maximum, speed_minimum, speed_maximum);
+        QueryPerformanceCounter(&pass_end_counter);
+        renderer->last_debug_timings.particles_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
+
+        QueryPerformanceCounter(&pass_start_counter);
         SimulationRenderer_DrawBounds(renderer, projection_matrix, camera_matrices.view_matrix, bounds_model_matrix);
+        QueryPerformanceCounter(&pass_end_counter);
+        renderer->last_debug_timings.bounds_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(pass_start_counter, pass_end_counter, performance_frequency);
+
+        QueryPerformanceCounter(&total_end_counter);
+        renderer->last_debug_timings.total_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(total_start_counter, total_end_counter, performance_frequency);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindVertexArray(0);
     glUseProgram(0);
+
+    if (render_mode == SIMULATION_RENDER_MODE_SCREEN_FLUID)
+    {
+        QueryPerformanceCounter(&total_end_counter);
+        renderer->last_debug_timings.total_milliseconds =
+            SimulationRenderer_GetMillisecondsBetweenCounters(total_start_counter, total_end_counter, performance_frequency);
+    }
+    renderer->gpu_query_frame_index = (renderer->gpu_query_frame_index + 1u) % SIMULATION_RENDERER_GPU_QUERY_RING_SIZE;
 }
