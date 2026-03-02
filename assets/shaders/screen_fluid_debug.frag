@@ -38,5 +38,21 @@ void main(void)
         return;
     }
 
+    if (u_debug_mode == 3)
+    {
+        float smooth_depth = sample_value.r;
+        float hard_depth = sample_value.a;
+
+        if (hard_depth > 1000.0)
+        {
+            fragment_color = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float depth_display = exp(-smooth_depth * 0.08);
+        fragment_color = vec4(vec3(depth_display), 1.0);
+        return;
+    }
+
     fragment_color = vec4(1.0, 0.0, 1.0, 1.0);
 }

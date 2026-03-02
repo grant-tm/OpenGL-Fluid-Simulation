@@ -178,6 +178,7 @@ typedef enum SimulationScreenFluidVisualizationMode
     SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE = 0,
     SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED = 1,
     SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL = 2,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_SMOOTH_DEPTH = 3,
 } SimulationScreenFluidVisualizationMode;
 
 typedef enum SimulationScreenFluidSmoothingMode
