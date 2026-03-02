@@ -3,6 +3,7 @@
 uniform sampler2D u_comp_texture;
 uniform vec2 u_texel_size;
 uniform mat4 u_projection;
+uniform mat4 u_inverse_projection;
 
 in vec2 v_texture_coordinate;
 
@@ -11,11 +12,9 @@ out vec4 fragment_color;
 vec3 ViewPositionFromLinearDepth (vec2 sample_texture_coordinate, float linear_depth)
 {
     vec2 normalized_device_coordinate = sample_texture_coordinate * 2.0 - vec2(1.0);
-
-    return vec3(
-        normalized_device_coordinate.x * linear_depth / u_projection[0][0],
-        normalized_device_coordinate.y * linear_depth / u_projection[1][1],
-        -linear_depth);
+    vec3 view_vector = (u_inverse_projection * vec4(normalized_device_coordinate, 0.0, -1.0)).xyz;
+    vec3 ray_direction = normalize(view_vector);
+    return ray_direction * linear_depth;
 }
 
 void main(void)

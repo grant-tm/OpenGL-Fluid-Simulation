@@ -25,5 +25,5 @@ void main(void)
     vec4 fragment_clip_position = u_projection * vec4(fragment_view_position, 1.0);
     float normalized_device_depth = fragment_clip_position.z / fragment_clip_position.w;
     gl_FragDepth = normalized_device_depth * 0.5 + 0.5;
-    fragment_depth_value = -fragment_view_position.z;
+    fragment_depth_value = length(fragment_view_position);
 }

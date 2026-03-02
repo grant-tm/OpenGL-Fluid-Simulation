@@ -23,6 +23,8 @@ typedef struct SimulationRenderer
     u32 screen_fluid_prepare_program_identifier;
     u32 screen_fluid_blur_program_identifier;
     u32 screen_fluid_normal_program_identifier;
+    u32 screen_fluid_debug_program_identifier;
+    u32 screen_fluid_shadow_blur_program_identifier;
     u32 screen_fluid_composite_program_identifier;
     u32 particle_vao_identifier;
     u32 screen_fluid_quad_vao_identifier;
@@ -43,6 +45,12 @@ typedef struct SimulationRenderer
     u32 screen_fluid_comp_blur_texture_identifier;
     u32 screen_fluid_normal_texture_identifier;
     u32 screen_fluid_scene_texture_identifier;
+    u32 screen_fluid_shadow_texture_identifier;
+    u32 screen_fluid_shadow_blur_texture_identifier;
+    i32 screen_fluid_shadow_texture_width;
+    i32 screen_fluid_shadow_texture_height;
+    i32 screen_fluid_thickness_texture_width;
+    i32 screen_fluid_thickness_texture_height;
     i32 screen_fluid_texture_width;
     i32 screen_fluid_texture_height;
     i32 particle_projection_uniform;
@@ -84,17 +92,28 @@ typedef struct SimulationRenderer
     i32 screen_fluid_blur_image_width_uniform;
     i32 screen_fluid_blur_world_radius_uniform;
     i32 screen_fluid_blur_max_radius_uniform;
+    i32 screen_fluid_blur_strength_uniform;
+    i32 screen_fluid_blur_difference_strength_uniform;
     i32 screen_fluid_normal_comp_texture_uniform;
     i32 screen_fluid_normal_texel_size_uniform;
     i32 screen_fluid_normal_projection_uniform;
+    i32 screen_fluid_normal_inverse_projection_uniform;
+    i32 screen_fluid_debug_texture_uniform;
+    i32 screen_fluid_debug_mode_uniform;
+    i32 screen_fluid_shadow_blur_texture_uniform;
+    i32 screen_fluid_shadow_blur_direction_uniform;
+    i32 screen_fluid_shadow_blur_texel_size_uniform;
     i32 screen_fluid_composite_texture_uniform;
     i32 screen_fluid_composite_depth_texture_uniform;
     i32 screen_fluid_composite_texel_size_uniform;
     i32 screen_fluid_composite_projection_uniform;
+    i32 screen_fluid_composite_inverse_projection_uniform;
     i32 screen_fluid_composite_inverse_view_uniform;
     i32 screen_fluid_composite_bounds_size_uniform;
     i32 screen_fluid_composite_normal_texture_uniform;
     i32 screen_fluid_composite_scene_texture_uniform;
+    i32 screen_fluid_composite_shadow_texture_uniform;
+    i32 screen_fluid_composite_shadow_view_projection_uniform;
 } SimulationRenderer;
 
 typedef enum SimulationRenderMode
@@ -112,6 +131,13 @@ typedef enum SimulationParticleVisualizationMode
     SIMULATION_PARTICLE_VISUALIZATION_SPATIAL_KEY = 3,
 } SimulationParticleVisualizationMode;
 
+typedef enum SimulationScreenFluidVisualizationMode
+{
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE = 0,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED = 1,
+    SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL = 2,
+} SimulationScreenFluidVisualizationMode;
+
 bool SimulationRenderer_Initialize (SimulationRenderer *renderer, const SimulationParticleBuffers *particle_buffers);
 void SimulationRenderer_Shutdown (SimulationRenderer *renderer);
 void SimulationRenderer_UpdateCamera (SimulationCamera *camera, f32 delta_time_seconds);
@@ -124,6 +150,7 @@ void SimulationRenderer_Render (
     Vec3 simulation_bounds_size,
     SimulationRenderMode render_mode,
     SimulationParticleVisualizationMode particle_visualization_mode,
+    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode,
     f32 density_minimum,
     f32 density_maximum,
     f32 speed_minimum,

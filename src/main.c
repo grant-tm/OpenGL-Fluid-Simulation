@@ -65,6 +65,7 @@ typedef struct Application
     f32 most_recent_frame_delta_time_seconds;
     SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
+    SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode;
     f32 density_visualization_minimum;
     f32 density_visualization_maximum;
 } Application;
@@ -94,6 +95,7 @@ static void Application_LogSpatialHashInspection(Application *application);
 static void Application_LogVolumeDensitySummary(Application *application);
 static const char *Application_GetRenderModeName(SimulationRenderMode render_mode);
 static const char *Application_GetVisualizationModeName(SimulationParticleVisualizationMode particle_visualization_mode);
+static const char *Application_GetScreenFluidVisualizationModeName(SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode);
 static void OpenGL_LogContextInfo(void);
 static void OpenGL_UpdateViewport(Application *application);
 static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds);
@@ -326,6 +328,39 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 }
                 return 0;
             }
+            if (wide_param == '7')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == '8')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == '9')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
             if (wide_param == 'I')
             {
                 if (application != NULL)
@@ -532,7 +567,7 @@ static bool Application_InitializeSimulationView(Application *application)
     SimulationSpawnBox spawn_box = {0};
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
-    spawn_box.particle_spacing = 0.20f;
+    spawn_box.particle_spacing = 0.16f;
     spawn_box.position_jitter_scale = 0.08f;
     spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
 
@@ -554,6 +589,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->window_title_update_accumulator_seconds = 0.0f;
     application->most_recent_frame_delta_time_seconds = 0.0f;
     application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
+    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
     application->simulation_is_paused = false;
     application->simulation_single_step_requested = false;
     application->simulation_accumulator_seconds = 0.0f;
@@ -603,7 +639,7 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash.");
-    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, K logs screen-fluid targets.");
+    Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, 7 composite, 8 packed, 9 normals, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
     return true;
@@ -1093,6 +1129,18 @@ static const char *Application_GetVisualizationModeName(SimulationParticleVisual
     return "unknown";
 }
 
+static const char *Application_GetScreenFluidVisualizationModeName(SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode)
+{
+    switch (screen_fluid_visualization_mode)
+    {
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE: return "composite";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_PACKED: return "packed";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_NORMAL: return "normal";
+    }
+
+    return "unknown";
+}
+
 // == OpenGL ==========================================================================================================
 
 static void OpenGL_LogContextInfo(void)
@@ -1161,6 +1209,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         application->simulation_bounds_size,
         application->render_mode,
         application->particle_visualization_mode,
+        application->screen_fluid_visualization_mode,
         application->density_visualization_minimum,
         application->density_visualization_maximum,
         application->velocity_visualization_minimum,

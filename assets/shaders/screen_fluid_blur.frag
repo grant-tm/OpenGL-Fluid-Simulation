@@ -8,6 +8,8 @@ uniform float u_projection_scale_x;
 uniform float u_image_width;
 uniform float u_world_radius;
 uniform int u_max_screen_radius;
+uniform float u_strength;
+uniform float u_difference_strength;
 
 in vec2 v_texture_coordinate;
 
@@ -43,9 +45,15 @@ void main(void)
         u_projection_scale_x)));
     if (radius_in_pixels < 2) radius_in_pixels = 2;
     if (radius_in_pixels > u_max_screen_radius) radius_in_pixels = u_max_screen_radius;
-    sigma = max(0.75, (float(radius_in_pixels) / 3.0));
+    float radius_float = CalculateScreenSpaceRadius(
+        u_world_radius,
+        center_hard_depth,
+        u_image_width,
+        u_projection_scale_x);
+    float fractional_radius = max(0.0, float(radius_in_pixels) - radius_float);
+    sigma = max(0.0001, (float(radius_in_pixels) - fractional_radius) / (6.0 * max(0.001, u_strength)));
 
-    for (int sample_offset = -12; sample_offset <= 12; sample_offset++)
+    for (int sample_offset = -32; sample_offset <= 32; sample_offset++)
     {
         vec2 sample_coordinate = v_texture_coordinate + offset * float(sample_offset);
         vec4 sample_value = texture(u_source_texture, sample_coordinate);
@@ -67,7 +75,7 @@ void main(void)
 
         spatial_weight = exp(-(float(sample_offset * sample_offset)) / (2.0 * sigma * sigma));
         depth_difference = center_hard_depth - sample_hard_depth;
-        depth_weight = exp(-(depth_difference * depth_difference) * 140.0);
+        depth_weight = exp(-(depth_difference * depth_difference) * u_difference_strength);
         total_sample_weight = spatial_weight * depth_weight;
         weighted_depth_sum += sample_value.r * total_sample_weight;
         weighted_thickness_sum += sample_value.g * total_sample_weight;

@@ -4,8 +4,11 @@ uniform sampler2D u_fluid_texture;
 uniform sampler2D u_depth_texture;
 uniform sampler2D u_normal_texture;
 uniform sampler2D u_scene_texture;
+uniform sampler2D u_shadow_texture;
 uniform mat4 u_projection;
+uniform mat4 u_inverse_projection;
 uniform mat4 u_inverse_view;
+uniform mat4 u_shadow_view_projection;
 uniform vec3 u_bounds_size;
 
 in vec2 v_texture_coordinate;
@@ -30,11 +33,9 @@ vec3 SampleEnvironment (vec3 direction)
 vec3 ViewPositionFromLinearDepth (vec2 sample_texture_coordinate, float linear_depth)
 {
     vec2 normalized_device_coordinate = sample_texture_coordinate * 2.0 - vec2(1.0);
-
-    return vec3(
-        normalized_device_coordinate.x * linear_depth / u_projection[0][0],
-        normalized_device_coordinate.y * linear_depth / u_projection[1][1],
-        -linear_depth);
+    vec3 view_vector = (u_inverse_projection * vec4(normalized_device_coordinate, 0.0, -1.0)).xyz;
+    vec3 ray_direction = normalize(view_vector);
+    return ray_direction * linear_depth;
 }
 
 vec3 WorldPositionFromViewPosition (vec3 view_position)
@@ -97,6 +98,7 @@ void main(void)
 
     vec2 normalized_device_coordinate = v_texture_coordinate * 2.0 - vec2(1.0);
     vec3 view_position = ViewPositionFromLinearDepth(v_texture_coordinate, smooth_depth);
+    vec3 world_position = WorldPositionFromViewPosition(view_position);
     vec3 world_normal = ViewDirectionToWorldDirection(surface_normal);
 
     vec3 view_direction = normalize(view_position);
@@ -132,6 +134,17 @@ void main(void)
     vec3 transmitted_scene_color = scene_color * transmission_factor;
     vec3 refracted_color = mix(in_scatter_color, transmitted_scene_color, clamp(transmission_factor, vec3(0.0), vec3(1.0)));
     refracted_color = mix(refracted_color, refracted_environment_color, 0.24);
+
+    vec4 shadow_clip_position = u_shadow_view_projection * vec4(world_position, 1.0);
+    shadow_clip_position /= shadow_clip_position.w;
+    vec2 shadow_texture_coordinate = shadow_clip_position.xy * 0.5 + vec2(0.5);
+    float shadow_edge_weight =
+        shadow_texture_coordinate.x >= 0.0 && shadow_texture_coordinate.x <= 1.0 &&
+        shadow_texture_coordinate.y >= 0.0 && shadow_texture_coordinate.y <= 1.0 ? 1.0 : 0.0;
+    float shadow_thickness = texture(u_shadow_texture, shadow_texture_coordinate).r * shadow_edge_weight;
+    vec3 shadow_transmission = exp(-shadow_thickness * vec3(1.9, 0.95, 0.30));
+    shadow_transmission = shadow_transmission * 0.83 + vec3(0.17);
+    refracted_color *= shadow_transmission;
 
     vec3 light_direction = normalize(vec3(-0.45, 0.72, 0.52));
     vec3 half_vector = normalize(light_direction + incident_direction);
