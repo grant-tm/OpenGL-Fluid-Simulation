@@ -13,6 +13,23 @@ static u32 Simulation_CalculateParticlesPerAxis (f32 axis_size, f32 particle_spa
     return particle_count;
 }
 
+static u32 Simulation_HashU32 (u32 value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+static f32 Simulation_RandomSignedNormalizedFromSeed (u32 seed)
+{
+    u32 hashed_value = Simulation_HashU32(seed);
+    f32 normalized_value = (f32) hashed_value / (f32) 0xffffffffu;
+    return normalized_value * 2.0f - 1.0f;
+}
+
 static bool Simulation_IsPositionWithinBounds (Vec4 position, SimulationSpawnBox spawn_box)
 {
     f32 half_width = spawn_box.size.x * 0.5f;
@@ -71,6 +88,13 @@ bool Simulation_GenerateSpawnDataBox (SimulationSpawnData *spawn_data, Simulatio
     f32 start_z = spawn_box.center.z - ((f32) (particles_along_z - 1) * spawn_box.particle_spacing) * 0.5f;
 
     u32 particle_index = 0;
+    f32 jitter_distance = spawn_box.particle_spacing * spawn_box.position_jitter_scale;
+    f32 minimum_x = spawn_box.center.x - spawn_box.size.x * 0.5f;
+    f32 maximum_x = spawn_box.center.x + spawn_box.size.x * 0.5f;
+    f32 minimum_y = spawn_box.center.y - spawn_box.size.y * 0.5f;
+    f32 maximum_y = spawn_box.center.y + spawn_box.size.y * 0.5f;
+    f32 minimum_z = spawn_box.center.z - spawn_box.size.z * 0.5f;
+    f32 maximum_z = spawn_box.center.z + spawn_box.size.z * 0.5f;
     for (u32 z_index = 0; z_index < particles_along_z; z_index++)
     {
         for (u32 y_index = 0; y_index < particles_along_y; y_index++)
@@ -80,6 +104,17 @@ bool Simulation_GenerateSpawnDataBox (SimulationSpawnData *spawn_data, Simulatio
                 f32 x_position = start_x + (f32) x_index * spawn_box.particle_spacing;
                 f32 y_position = start_y + (f32) y_index * spawn_box.particle_spacing;
                 f32 z_position = start_z + (f32) z_index * spawn_box.particle_spacing;
+
+                if (jitter_distance > 0.0f)
+                {
+                    u32 base_seed = particle_index * 3u + 17u;
+                    x_position += Simulation_RandomSignedNormalizedFromSeed(base_seed + 0u) * jitter_distance;
+                    y_position += Simulation_RandomSignedNormalizedFromSeed(base_seed + 1u) * jitter_distance;
+                    z_position += Simulation_RandomSignedNormalizedFromSeed(base_seed + 2u) * jitter_distance;
+                    x_position = Base_ClampF32(x_position, minimum_x, maximum_x);
+                    y_position = Base_ClampF32(y_position, minimum_y, maximum_y);
+                    z_position = Base_ClampF32(z_position, minimum_z, maximum_z);
+                }
 
                 Vec4 position = Vec4_Create(x_position, y_position, z_position, 1.0f);
                 Vec4 velocity = Vec4_Create(

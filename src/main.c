@@ -81,6 +81,9 @@ static bool Win32_RegisterWindowClass(HINSTANCE instance_handle);
 static bool Win32_CreateWindowAndContext(Application *application, i32 client_width, i32 client_height);
 static void Win32_DestroyWindowAndContext(Application *application);
 static bool Application_InitializeSimulationView(Application *application);
+static void Application_ShutdownSimulationResources(Application *application);
+static bool Application_InitializeSimulationResources(Application *application);
+static bool Application_RunInitializationWarmup(Application *application);
 static bool Application_RebuildSimulationDerivedState(Application *application);
 static bool Application_RunSimulationFixedStep(Application *application, f32 simulation_delta_time_seconds);
 static void Application_ResetSimulation(Application *application);
@@ -501,16 +504,7 @@ static bool Win32_CreateWindowAndContext(Application *application, i32 client_wi
 
 static void Win32_DestroyWindowAndContext(Application *application)
 {
-    SimulationRenderer_Shutdown(&application->renderer);
-    SimulationPipeline_Shutdown(&application->pipeline);
-    SimulationStepper_Shutdown(&application->stepper);
-    SimulationCollision_Shutdown(&application->collision);
-    SimulationDensity_Shutdown(&application->density);
-    SimulationPressure_Shutdown(&application->pressure);
-    SimulationViscosity_Shutdown(&application->viscosity);
-    SimulationSpatialHash_Shutdown(&application->spatial_hash);
-    SimulationVolumeDensity_Shutdown(&application->volume_density);
-    Simulation_DestroyParticleBuffers(&application->particle_buffers);
+    Application_ShutdownSimulationResources(application);
     Simulation_ReleaseSpawnData(&application->initial_spawn_data);
 
     if (application->rendering_context_handle != NULL)
@@ -539,14 +533,10 @@ static bool Application_InitializeSimulationView(Application *application)
     spawn_box.center = Vec3_Create(0.0f, 0.0f, 0.0f);
     spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
     spawn_box.particle_spacing = 0.20f;
+    spawn_box.position_jitter_scale = 0.08f;
     spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
 
     if (!Simulation_GenerateSpawnDataBox(&application->initial_spawn_data, spawn_box))
-    {
-        return false;
-    }
-
-    if (!Simulation_CreateParticleBuffersFromSpawnData(&application->particle_buffers, &application->initial_spawn_data))
     {
         return false;
     }
@@ -599,108 +589,14 @@ static bool Application_InitializeSimulationView(Application *application)
     application->pipeline_settings.viscosity_settings = application->viscosity_settings;
     application->pipeline_settings.collision_settings = application->collision_settings;
 
-    if (!SimulationRenderer_Initialize(&application->renderer, &application->particle_buffers))
+    if (!Application_InitializeSimulationResources(application))
     {
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
         return false;
     }
 
-    if (!SimulationStepper_Initialize(&application->stepper))
+    if (!Application_RunInitializationWarmup(application))
     {
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationSpatialHash_Initialize(&application->spatial_hash))
-    {
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationCollision_Initialize(&application->collision))
-    {
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationDensity_Initialize(&application->density))
-    {
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationPressure_Initialize(&application->pressure))
-    {
-        SimulationDensity_Shutdown(&application->density);
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationViscosity_Initialize(&application->viscosity))
-    {
-        SimulationPressure_Shutdown(&application->pressure);
-        SimulationDensity_Shutdown(&application->density);
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationPipeline_Initialize(&application->pipeline))
-    {
-        SimulationViscosity_Shutdown(&application->viscosity);
-        SimulationPressure_Shutdown(&application->pressure);
-        SimulationDensity_Shutdown(&application->density);
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!SimulationVolumeDensity_Initialize(&application->volume_density, application->volume_density_settings))
-    {
-        SimulationPipeline_Shutdown(&application->pipeline);
-        SimulationViscosity_Shutdown(&application->viscosity);
-        SimulationPressure_Shutdown(&application->pressure);
-        SimulationDensity_Shutdown(&application->density);
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
-        return false;
-    }
-
-    if (!Application_RebuildSimulationDerivedState(application))
-    {
-        SimulationVolumeDensity_Shutdown(&application->volume_density);
-        SimulationPipeline_Shutdown(&application->pipeline);
-        SimulationViscosity_Shutdown(&application->viscosity);
-        SimulationPressure_Shutdown(&application->pressure);
-        SimulationDensity_Shutdown(&application->density);
-        SimulationCollision_Shutdown(&application->collision);
-        SimulationSpatialHash_Shutdown(&application->spatial_hash);
-        SimulationStepper_Shutdown(&application->stepper);
-        SimulationRenderer_Shutdown(&application->renderer);
-        Simulation_DestroyParticleBuffers(&application->particle_buffers);
+        Application_ShutdownSimulationResources(application);
         return false;
     }
 
@@ -710,6 +606,116 @@ static bool Application_InitializeSimulationView(Application *application)
     Base_LogInfo("Render controls: M cycles particles/volume/screen-fluid, K logs screen-fluid targets.");
     Base_LogInfo("Simulation controls: R resets, Space pauses, N single-steps, I logs hash inspection, J logs volume density.");
     Base_LogInfo("Runtime parameters: 1/2 time scale, 3/4 pressure, 5/6 viscosity.");
+    return true;
+}
+
+static void Application_ShutdownSimulationResources(Application *application)
+{
+    Base_Assert(application != NULL);
+
+    SimulationRenderer_Shutdown(&application->renderer);
+    SimulationPipeline_Shutdown(&application->pipeline);
+    SimulationStepper_Shutdown(&application->stepper);
+    SimulationCollision_Shutdown(&application->collision);
+    SimulationDensity_Shutdown(&application->density);
+    SimulationPressure_Shutdown(&application->pressure);
+    SimulationViscosity_Shutdown(&application->viscosity);
+    SimulationSpatialHash_Shutdown(&application->spatial_hash);
+    SimulationVolumeDensity_Shutdown(&application->volume_density);
+    Simulation_DestroyParticleBuffers(&application->particle_buffers);
+}
+
+static bool Application_InitializeSimulationResources(Application *application)
+{
+    Base_Assert(application != NULL);
+
+    if (!Simulation_CreateParticleBuffersFromSpawnData(&application->particle_buffers, &application->initial_spawn_data))
+    {
+        return false;
+    }
+
+    if (!SimulationRenderer_Initialize(&application->renderer, &application->particle_buffers))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationStepper_Initialize(&application->stepper))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationSpatialHash_Initialize(&application->spatial_hash))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationCollision_Initialize(&application->collision))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationDensity_Initialize(&application->density))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationPressure_Initialize(&application->pressure))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationViscosity_Initialize(&application->viscosity))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationPipeline_Initialize(&application->pipeline))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!SimulationVolumeDensity_Initialize(&application->volume_density, application->volume_density_settings))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    if (!Application_RebuildSimulationDerivedState(application))
+    {
+        Application_ShutdownSimulationResources(application);
+        return false;
+    }
+
+    return true;
+}
+
+static bool Application_RunInitializationWarmup(Application *application)
+{
+    Base_Assert(application != NULL);
+
+    const i32 warmup_step_count = 36;
+    const f32 warmup_delta_time_seconds = 1.0f / 120.0f;
+
+    for (i32 warmup_step_index = 0; warmup_step_index < warmup_step_count; warmup_step_index++)
+    {
+        if (!Application_RunSimulationFixedStep(application, warmup_delta_time_seconds))
+        {
+            Base_LogError("Failed during simulation warmup.");
+            return false;
+        }
+    }
+
+    application->simulation_accumulator_seconds = 0.0f;
+    application->simulation_single_step_requested = false;
+
     return true;
 }
 
@@ -776,30 +782,28 @@ static bool Application_RunSimulationFixedStep(Application *application, f32 sim
 
 static void Application_ResetSimulation(Application *application)
 {
-    Simulation_DestroyParticleBuffers(&application->particle_buffers);
+    SimulationRenderMode previous_render_mode = application->render_mode;
+    SimulationParticleVisualizationMode previous_visualization_mode = application->particle_visualization_mode;
+
+    Application_ShutdownSimulationResources(application);
     application->simulation_accumulator_seconds = 0.0f;
     application->simulation_single_step_requested = false;
 
-    if (!Simulation_CreateParticleBuffersFromSpawnData(&application->particle_buffers, &application->initial_spawn_data))
+    if (!Application_InitializeSimulationResources(application))
     {
-        Base_LogError("Failed to reset simulation particle buffers.");
+        Base_LogError("Failed to reset simulation resources.");
         application->is_running = false;
         return;
     }
 
-    SimulationRenderer_Shutdown(&application->renderer);
-    if (!SimulationRenderer_Initialize(&application->renderer, &application->particle_buffers))
+    if (!Application_RunInitializationWarmup(application))
     {
-        Base_LogError("Failed to reinitialize the renderer after reset.");
         application->is_running = false;
         return;
     }
 
-    if (!Application_RebuildSimulationDerivedState(application))
-    {
-        application->is_running = false;
-        return;
-    }
+    application->render_mode = previous_render_mode;
+    application->particle_visualization_mode = previous_visualization_mode;
 
     Base_LogInfo("Simulation reset.");
 }

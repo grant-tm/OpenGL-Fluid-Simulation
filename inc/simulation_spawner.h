@@ -8,6 +8,7 @@ typedef struct SimulationSpawnBox
     Vec3 center;
     Vec3 size;
     f32 particle_spacing;
+    f32 position_jitter_scale;
     Vec3 initial_velocity;
 } SimulationSpawnBox;
 

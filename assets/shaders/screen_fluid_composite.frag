@@ -3,6 +3,10 @@
 uniform sampler2D u_fluid_texture;
 uniform sampler2D u_depth_texture;
 uniform sampler2D u_normal_texture;
+uniform sampler2D u_scene_texture;
+uniform mat4 u_projection;
+uniform mat4 u_inverse_view;
+uniform vec3 u_bounds_size;
 
 in vec2 v_texture_coordinate;
 
@@ -21,6 +25,54 @@ vec3 SampleEnvironment (vec3 direction)
     }
 
     return mix(horizon_color * 0.4, floor_color, clamp(-direction.y, 0.0, 1.0));
+}
+
+vec3 ViewPositionFromLinearDepth (vec2 sample_texture_coordinate, float linear_depth)
+{
+    vec2 normalized_device_coordinate = sample_texture_coordinate * 2.0 - vec2(1.0);
+
+    return vec3(
+        normalized_device_coordinate.x * linear_depth / u_projection[0][0],
+        normalized_device_coordinate.y * linear_depth / u_projection[1][1],
+        -linear_depth);
+}
+
+vec3 WorldPositionFromViewPosition (vec3 view_position)
+{
+    return (u_inverse_view * vec4(view_position, 1.0)).xyz;
+}
+
+vec3 ViewDirectionToWorldDirection (vec3 view_direction)
+{
+    return normalize((u_inverse_view * vec4(view_direction, 0.0)).xyz);
+}
+
+vec3 CalculateClosestFaceNormal (vec3 box_size, vec3 position)
+{
+    vec3 half_size = box_size * 0.5;
+    vec3 edge_offset = half_size - abs(position);
+
+    if (edge_offset.x < edge_offset.y && edge_offset.x < edge_offset.z)
+    {
+        return vec3(sign(position.x), 0.0, 0.0);
+    }
+    if (edge_offset.y < edge_offset.z)
+    {
+        return vec3(0.0, sign(position.y), 0.0);
+    }
+    return vec3(0.0, 0.0, sign(position.z));
+}
+
+vec3 SmoothEdgeNormal (vec3 world_normal, vec3 world_position, vec3 box_size)
+{
+    vec3 edge_offset = box_size * 0.5 - abs(world_position);
+    float face_weight = max(0.0, min(edge_offset.x, edge_offset.z));
+    vec3 face_normal = CalculateClosestFaceNormal(box_size, world_position);
+    float corner_weight = 1.0 - clamp(abs(edge_offset.x - edge_offset.z) * 6.0, 0.0, 1.0);
+    face_weight = 1.0 - smoothstep(0.0, 0.05, face_weight);
+    face_weight *= (1.0 - corner_weight);
+
+    return normalize(mix(world_normal, face_normal, face_weight));
 }
 
 void main(void)
@@ -44,28 +96,60 @@ void main(void)
     surface_normal = normalize(surface_normal);
 
     vec2 normalized_device_coordinate = v_texture_coordinate * 2.0 - vec2(1.0);
-    vec3 view_direction = normalize(vec3(normalized_device_coordinate.x, normalized_device_coordinate.y, -1.5));
-    vec3 reflection_direction = reflect(view_direction, surface_normal);
-    vec3 refraction_direction = refract(view_direction, surface_normal, 1.0 / 1.33);
+    vec3 view_position = ViewPositionFromLinearDepth(v_texture_coordinate, smooth_depth);
+    vec3 world_normal = ViewDirectionToWorldDirection(surface_normal);
+
+    vec3 view_direction = normalize(view_position);
+    vec3 world_view_direction = ViewDirectionToWorldDirection(view_direction);
+    vec3 incident_direction = normalize(-world_view_direction);
+    vec3 reflection_direction = reflect(incident_direction, world_normal);
+    vec3 refraction_direction = refract(incident_direction, world_normal, 1.0 / 1.333);
     if (dot(refraction_direction, refraction_direction) < 0.001)
     {
-        refraction_direction = view_direction;
+        refraction_direction = incident_direction;
     }
 
-    float view_normal_alignment = clamp(dot(-view_direction, surface_normal), 0.0, 1.0);
+    float view_normal_alignment = clamp(dot(incident_direction, world_normal), 0.0, 1.0);
     float fresnel_factor = 0.02 + 0.98 * pow(1.0 - view_normal_alignment, 5.0);
-    vec3 extinction_coefficients = vec3(1.7, 0.85, 0.28);
-    vec3 transmission_color = exp(-smooth_thickness * 2.6 * extinction_coefficients);
+
+    float refraction_offset_scale = 0.055;
+    vec2 refraction_offset = world_normal.xy * smooth_thickness * refraction_offset_scale;
+    vec2 refracted_texture_coordinate = clamp(v_texture_coordinate + refraction_offset, vec2(0.001), vec2(0.999));
+    vec3 scene_color = texture(u_scene_texture, refracted_texture_coordinate).rgb;
+    vec3 fallback_scene_color = mix(
+        vec3(0.10, 0.15, 0.22),
+        vec3(0.42, 0.58, 0.74),
+        clamp(refracted_texture_coordinate.y * 0.85 + 0.15, 0.0, 1.0));
+    scene_color = mix(fallback_scene_color, scene_color, 0.55);
+
     vec3 reflected_color = SampleEnvironment(reflection_direction);
-    vec3 refracted_color = SampleEnvironment(refraction_direction);
-    vec3 water_body_color = mix(vec3(0.06, 0.18, 0.31), vec3(0.12, 0.42, 0.68), clamp(smooth_thickness * 1.2, 0.0, 1.0));
-    vec3 absorbed_color = mix(water_body_color, refracted_color, transmission_color);
-    vec3 final_color = mix(absorbed_color, reflected_color, fresnel_factor);
+    vec3 refracted_environment_color = SampleEnvironment(refraction_direction);
+    vec3 extinction_coefficients = vec3(1.9, 0.95, 0.30);
+    vec3 transmission_factor = exp(-smooth_thickness * 3.2 * extinction_coefficients);
+    vec3 deep_water_color = vec3(0.05, 0.20, 0.34);
+    vec3 shallow_water_color = vec3(0.20, 0.52, 0.78);
+    vec3 in_scatter_color = mix(deep_water_color, shallow_water_color, clamp(smooth_thickness * 0.9, 0.0, 1.0));
+    vec3 transmitted_scene_color = scene_color * transmission_factor;
+    vec3 refracted_color = mix(in_scatter_color, transmitted_scene_color, clamp(transmission_factor, vec3(0.0), vec3(1.0)));
+    refracted_color = mix(refracted_color, refracted_environment_color, 0.24);
 
-    float edge_boost = clamp((hard_thickness - smooth_thickness) * 2.2, 0.0, 1.0);
-    final_color += vec3(0.12, 0.18, 0.24) * edge_boost;
+    vec3 light_direction = normalize(vec3(-0.45, 0.72, 0.52));
+    vec3 half_vector = normalize(light_direction + incident_direction);
+    float diffuse_light = max(dot(world_normal, light_direction), 0.0);
+    float specular_light = pow(max(dot(world_normal, half_vector), 0.0), 96.0);
+    float grazing_light = pow(1.0 - view_normal_alignment, 2.5);
 
-    float alpha_value = clamp(smooth_thickness * 1.25 + fresnel_factor * 0.12, 0.0, 0.97);
+    reflected_color = max(reflected_color, vec3(0.18, 0.22, 0.28));
+    vec3 final_color = mix(refracted_color, reflected_color, fresnel_factor);
+    final_color += vec3(0.85, 0.93, 1.0) * specular_light * 0.35;
+    final_color += vec3(0.06, 0.10, 0.14) * diffuse_light * grazing_light;
+    final_color += shallow_water_color * (0.18 + smooth_thickness * 0.10);
+
+    float edge_foam_factor = clamp((hard_thickness - smooth_thickness) * 2.8, 0.0, 1.0);
+    final_color += vec3(0.08, 0.10, 0.12) * edge_foam_factor;
+    final_color = max(final_color, deep_water_color * 0.85);
+
+    float alpha_value = clamp(smooth_thickness * 1.35 + fresnel_factor * 0.16, 0.0, 0.98);
     if (hard_depth > 1000.0)
     {
         alpha_value *= 0.0;
