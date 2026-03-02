@@ -162,11 +162,10 @@ void main(void)
     final_color += vec3(0.08, 0.10, 0.12) * edge_foam_factor;
     final_color = max(final_color, deep_water_color * 0.85);
 
-    float alpha_value = clamp(smooth_thickness * 1.35 + fresnel_factor * 0.16, 0.0, 0.98);
     if (hard_depth > 1000.0)
     {
-        alpha_value *= 0.0;
+        discard;
     }
 
-    fragment_color = vec4(final_color, alpha_value);
+    fragment_color = vec4(final_color, 1.0);
 }
