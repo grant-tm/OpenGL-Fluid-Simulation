@@ -4,10 +4,6 @@
 
 <table>
   <tr>
-    <td align="center"><strong>Demo</strong></td>
-    <td align="center"><strong>Demo Alt</strong></td>
-  </tr>
-  <tr>
     <td><img src="assets/images/demo.gif" width="100%"></td>
     <td><img src="assets/images/demo_alt.gif" width="100%"></td>
   </tr>
