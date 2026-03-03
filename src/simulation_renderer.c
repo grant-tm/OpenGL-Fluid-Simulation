@@ -501,9 +501,13 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     SimulationRenderer *renderer,
     i32 texture_width,
     i32 texture_height,
+    i32 scene_texture_width,
+    i32 scene_texture_height,
     i32 thickness_texture_width,
     i32 thickness_texture_height)
 {
+    renderer->screen_fluid_scene_texture_width = scene_texture_width;
+    renderer->screen_fluid_scene_texture_height = scene_texture_height;
     renderer->screen_fluid_thickness_texture_width = thickness_texture_width;
     renderer->screen_fluid_thickness_texture_height = thickness_texture_height;
     renderer->screen_fluid_texture_width = texture_width;
@@ -571,7 +575,7 @@ static bool SimulationRenderer_AllocateScreenFluidTargets (
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, thickness_texture_width, thickness_texture_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, scene_texture_width, scene_texture_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, renderer->screen_fluid_foam_texture_identifier);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -652,6 +656,8 @@ static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *ren
     if (thickness_texture_height < 64) thickness_texture_height = 64;
     if (renderer->screen_fluid_texture_width == texture_width &&
         renderer->screen_fluid_texture_height == texture_height &&
+        renderer->screen_fluid_scene_texture_width == full_resolution_width &&
+        renderer->screen_fluid_scene_texture_height == full_resolution_height &&
         renderer->screen_fluid_thickness_texture_width == thickness_texture_width &&
         renderer->screen_fluid_thickness_texture_height == thickness_texture_height &&
         renderer->screen_fluid_thickness_texture_identifier != 0 &&
@@ -692,12 +698,16 @@ static bool SimulationRenderer_EnsureScreenFluidTargets (SimulationRenderer *ren
     renderer->screen_fluid_thickness_depth_renderbuffer_identifier = 0;
     renderer->screen_fluid_shadow_texture_width = 0;
     renderer->screen_fluid_shadow_texture_height = 0;
+    renderer->screen_fluid_scene_texture_width = 0;
+    renderer->screen_fluid_scene_texture_height = 0;
     renderer->screen_fluid_thickness_texture_width = 0;
     renderer->screen_fluid_thickness_texture_height = 0;
     return SimulationRenderer_AllocateScreenFluidTargets(
         renderer,
         texture_width,
         texture_height,
+        full_resolution_width,
+        full_resolution_height,
         thickness_texture_width,
         thickness_texture_height);
 }

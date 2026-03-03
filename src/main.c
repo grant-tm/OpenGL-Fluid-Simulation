@@ -943,8 +943,16 @@ static bool Win32_RegisterWindowClass(HINSTANCE instance_handle)
 
 static bool Win32_CreateWindowAndContext(Application *application, i32 client_width, i32 client_height)
 {
+    RECT work_area = {0};
     RECT window_rect = {0, 0, client_width, client_height};
-    DWORD window_style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+    DWORD window_style = WS_OVERLAPPEDWINDOW;
+
+    if (SystemParametersInfoA(SPI_GETWORKAREA, 0, &work_area, 0))
+    {
+        window_rect.right = work_area.right - work_area.left;
+        window_rect.bottom = work_area.bottom - work_area.top;
+    }
+
     AdjustWindowRect(&window_rect, window_style, FALSE);
 
     application->window_handle = CreateWindowExA(
@@ -952,8 +960,8 @@ static bool Win32_CreateWindowAndContext(Application *application, i32 client_wi
         WINDOW_CLASS_NAME,
         WINDOW_TITLE,
         window_style,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
+        work_area.left,
+        work_area.top,
         window_rect.right - window_rect.left,
         window_rect.bottom - window_rect.top,
         NULL,
@@ -1002,7 +1010,7 @@ static bool Win32_CreateWindowAndContext(Application *application, i32 client_wi
     application->is_running = true;
     application->was_resized = true;
 
-    ShowWindow(application->window_handle, SW_SHOW);
+    ShowWindow(application->window_handle, SW_MAXIMIZE);
     UpdateWindow(application->window_handle);
     OpenGL_UpdateViewport(application);
 
@@ -1048,10 +1056,10 @@ static bool Application_InitializeSimulationView(Application *application)
     }
 
     application->simulation_bounds_size = Vec3_Create(8.0f, 8.0f, 8.0f);
-    application->camera.target = Vec3_Create(0.0f, 0.0f, 0.0f);
-    application->camera.distance = 11.0f;
-    application->camera.yaw_radians = 0.6f;
-    application->camera.pitch_radians = 0.35f;
+    application->camera.target = Vec3_Create(0.0f, -0.75f, 0.0f);
+    application->camera.distance = 18.5f;
+    application->camera.yaw_radians = 0.6f + (BASE_PI32 * 0.5f);
+    application->camera.pitch_radians = 0.30f;
     application->particle_visualization_mode = SIMULATION_PARTICLE_VISUALIZATION_BASIC;
     application->density_visualization_minimum = 0.0f;
     application->density_visualization_maximum = 1.0f;
@@ -1063,7 +1071,7 @@ static bool Application_InitializeSimulationView(Application *application)
     application->most_recent_frame_delta_time_seconds = 0.0f;
     application->simulation_time_seconds = 0.0f;
     application->most_recent_whitewater_particle_count = 0u;
-    application->render_mode = SIMULATION_RENDER_MODE_PARTICLES;
+    application->render_mode = SIMULATION_RENDER_MODE_SCREEN_FLUID;
     application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_COMPOSITE;
     application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN;
     application->simulation_is_paused = false;

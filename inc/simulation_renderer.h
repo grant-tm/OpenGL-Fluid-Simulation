@@ -99,6 +99,8 @@ typedef struct SimulationRenderer
     u32 screen_fluid_shadow_blur_texture_identifier;
     i32 screen_fluid_shadow_texture_width;
     i32 screen_fluid_shadow_texture_height;
+    i32 screen_fluid_scene_texture_width;
+    i32 screen_fluid_scene_texture_height;
     i32 screen_fluid_thickness_texture_width;
     i32 screen_fluid_thickness_texture_height;
     i32 screen_fluid_texture_width;

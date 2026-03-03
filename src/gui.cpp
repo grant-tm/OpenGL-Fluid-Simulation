@@ -110,7 +110,7 @@ namespace
             ImGuiWindowFlags_NoBringToFrontOnFocus;
 
         ImGui::SetNextWindowPos(main_viewport->WorkPos, ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(main_viewport->WorkSize.x, 54.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(main_viewport->WorkSize.x, 60.0f), ImGuiCond_Always);
 
         if (ImGui::Begin("Top Bar", nullptr, window_flags))
         {
@@ -161,10 +161,11 @@ namespace
     void DrawSimulationPanel(GuiFrameData *frame_data)
     {
         ImGuiViewport *main_viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 12.0f, main_viewport->WorkPos.y + 66.0f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(360.0f, 560.0f), ImGuiCond_FirstUseEver);
+        const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
+        ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 16.0f, main_viewport->WorkPos.y + 76.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 660.0f), ImGuiCond_FirstUseEver);
 
-        if (!ImGui::Begin("Simulation", &global_gui_state.show_simulation_panel))
+        if (!ImGui::Begin("Simulation", &global_gui_state.show_simulation_panel, window_flags))
         {
             ImGui::End();
             return;
@@ -294,13 +295,14 @@ namespace
             "Bilateral 2D",
         };
 
+        const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
         ImGuiViewport *main_viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(
-            ImVec2(main_viewport->WorkPos.x + main_viewport->WorkSize.x - 372.0f, main_viewport->WorkPos.y + 66.0f),
+            ImVec2(main_viewport->WorkPos.x + main_viewport->WorkSize.x - 360.0f, main_viewport->WorkPos.y + 76.0f),
             ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(360.0f, 560.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(360.0f, 520.0f), ImGuiCond_FirstUseEver);
 
-        if (!ImGui::Begin("Rendering", &global_gui_state.show_rendering_panel))
+        if (!ImGui::Begin("Rendering", &global_gui_state.show_rendering_panel, window_flags))
         {
             ImGui::End();
             return;
@@ -358,12 +360,17 @@ namespace
     void DrawDiagnosticsPanel(const GuiFrameData *frame_data)
     {
         ImGuiViewport *main_viewport = ImGui::GetMainViewport();
+        const ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoFocusOnAppearing;
+        const f32 diagnostics_width = 980.0f;
+        const f32 diagnostics_height = 250.0f;
         ImGui::SetNextWindowPos(
-            ImVec2(main_viewport->WorkPos.x + 12.0f, main_viewport->WorkPos.y + main_viewport->WorkSize.y - 258.0f),
+            ImVec2(
+                main_viewport->WorkPos.x + (main_viewport->WorkSize.x - diagnostics_width) * 0.5f,
+                main_viewport->WorkPos.y + main_viewport->WorkSize.y - diagnostics_height),
             ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(main_viewport->WorkSize.x - 24.0f, 246.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(diagnostics_width, diagnostics_height), ImGuiCond_FirstUseEver);
 
-        if (!ImGui::Begin("Diagnostics", &global_gui_state.show_diagnostics_panel))
+        if (!ImGui::Begin("Diagnostics", &global_gui_state.show_diagnostics_panel, window_flags))
         {
             ImGui::End();
             return;
