@@ -13,6 +13,7 @@ typedef struct SimulationWhitewaterSettings
     f32 trapped_air_velocity_maximum;
     f32 kinetic_energy_minimum;
     f32 kinetic_energy_maximum;
+    i32 surface_spawn_maximum_neighbors;
     f32 target_density;
     f32 smoothing_radius;
     f32 gravity;

@@ -16,6 +16,7 @@ out vec2 v_quad_uv;
 out float v_linear_depth;
 out float v_surface_depth;
 out float v_neighbor_count;
+out float v_lifetime;
 
 float Remap01(float value, float minimum_value, float maximum_value)
 {
@@ -40,6 +41,7 @@ void main(void)
         v_linear_depth = 10000.0;
         v_surface_depth = 1.0;
         v_neighbor_count = 0.0;
+        v_lifetime = 0.0;
         return;
     }
 
@@ -62,4 +64,5 @@ void main(void)
     v_linear_depth = abs(center_view_position.z);
     v_surface_depth = center_clip_position.z / center_clip_position.w * 0.5 + 0.5;
     v_neighbor_count = a_classification_data.y;
+    v_lifetime = lifetime;
 }

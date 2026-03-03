@@ -32,6 +32,7 @@ typedef struct SimulationPressure
     i32 trapped_air_velocity_maximum_uniform;
     i32 kinetic_energy_minimum_uniform;
     i32 kinetic_energy_maximum_uniform;
+    i32 surface_spawn_maximum_neighbors_uniform;
     i32 bubble_scale_uniform;
 } SimulationPressure;
 

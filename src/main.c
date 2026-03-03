@@ -180,14 +180,15 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
         application->volume_density_settings.smoothing_radius = 0.2f;
 
         application->whitewater_settings.maximum_particle_count = 1024000u;
-        application->whitewater_settings.spawn_rate = 120.0f;
+    application->whitewater_settings.spawn_rate = 300.0f;
         application->whitewater_settings.spawn_rate_fade_in_time = 0.35f;
         application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
-        application->whitewater_settings.trapped_air_velocity_minimum = 4.0f;
-        application->whitewater_settings.trapped_air_velocity_maximum = 12.0f;
-        application->whitewater_settings.kinetic_energy_minimum = 1.0f;
-        application->whitewater_settings.kinetic_energy_maximum = 8.0f;
-        application->whitewater_settings.gravity = application->step_settings.gravity;
+    application->whitewater_settings.trapped_air_velocity_minimum = 4.0f;
+    application->whitewater_settings.trapped_air_velocity_maximum = 12.0f;
+          application->whitewater_settings.kinetic_energy_minimum = 4.0f;
+          application->whitewater_settings.kinetic_energy_maximum = 16.0f;
+          application->whitewater_settings.surface_spawn_maximum_neighbors = 10;
+          application->whitewater_settings.gravity = application->step_settings.gravity;
         application->whitewater_settings.target_density = application->pressure_settings.target_density;
         application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
         application->whitewater_settings.bubble_buoyancy = 1.4f;
@@ -227,9 +228,10 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
         application->whitewater_settings.spawn_rate_fade_start_time = 0.20f;
         application->whitewater_settings.trapped_air_velocity_minimum = 15.0f;
         application->whitewater_settings.trapped_air_velocity_maximum = 25.0f;
-        application->whitewater_settings.kinetic_energy_minimum = 15.0f;
-        application->whitewater_settings.kinetic_energy_maximum = 30.0f;
-        application->whitewater_settings.gravity = application->step_settings.gravity;
+          application->whitewater_settings.kinetic_energy_minimum = 15.0f;
+          application->whitewater_settings.kinetic_energy_maximum = 30.0f;
+          application->whitewater_settings.surface_spawn_maximum_neighbors = 10;
+          application->whitewater_settings.gravity = application->step_settings.gravity;
         application->whitewater_settings.target_density = application->pressure_settings.target_density;
         application->whitewater_settings.smoothing_radius = application->density_settings.smoothing_radius;
         application->whitewater_settings.bubble_buoyancy = 1.4f;
@@ -635,6 +637,17 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
                 if (application != NULL)
                 {
                     application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT;
+                    Base_LogInfo(
+                        "Screen fluid view: %s",
+                        Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
+                }
+                return 0;
+            }
+            if (wide_param == 'P')
+            {
+                if (application != NULL)
+                {
+                    application->screen_fluid_visualization_mode = SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEWBORN;
                     Base_LogInfo(
                         "Screen fluid view: %s",
                         Application_GetScreenFluidVisualizationModeName(application->screen_fluid_visualization_mode));
@@ -1420,10 +1433,10 @@ static void Application_LogSpatialHashInspection(Application *application)
         return;
     }
 
-    u32 sample_index = particle_count / 2u;
     Vec4 *position_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
     Vec4 *density_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
     Vec4 *velocity_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
+    Vec4 *spawn_debug_values = (Vec4 *) malloc((size_t) particle_count * sizeof(Vec4));
     u32 *spatial_key_values = (u32 *) malloc((size_t) particle_count * sizeof(u32));
     u32 *spatial_hash_values = (u32 *) malloc((size_t) particle_count * sizeof(u32));
     u32 *spatial_offset_values = (u32 *) malloc((size_t) particle_count * sizeof(u32));
@@ -1432,6 +1445,7 @@ static void Application_LogSpatialHashInspection(Application *application)
         position_values != NULL &&
         density_values != NULL &&
         velocity_values != NULL &&
+        spawn_debug_values != NULL &&
         spatial_key_values != NULL &&
         spatial_hash_values != NULL &&
         spatial_offset_values != NULL;
@@ -1448,6 +1462,10 @@ static void Application_LogSpatialHashInspection(Application *application)
         OpenGL_ReadBuffer(
             &application->particle_buffers.velocity_buffer,
             velocity_values,
+            (i32) (particle_count * sizeof(Vec4))) &&
+        OpenGL_ReadBuffer(
+            &application->particle_buffers.whitewater_spawn_debug_buffer,
+            spawn_debug_values,
             (i32) (particle_count * sizeof(Vec4))) &&
         OpenGL_ReadBuffer(
             &application->particle_buffers.spatial_key_buffer,
@@ -1468,52 +1486,126 @@ static void Application_LogSpatialHashInspection(Application *application)
         free(position_values);
         free(density_values);
         free(velocity_values);
+        free(spawn_debug_values);
         free(spatial_key_values);
         free(spatial_hash_values);
         free(spatial_offset_values);
         return;
     }
 
-    u32 sample_key = spatial_key_values[sample_index];
-    u32 sample_hash = spatial_hash_values[sample_index];
-    u32 bucket_start_index = (sample_key < particle_count) ? spatial_offset_values[sample_key] : particle_count;
-    u32 bucket_particle_count = 0;
+    u32 midpoint_index = particle_count / 2u;
+    u32 maximum_spawn_factor_index = 0u;
+    u32 maximum_weighted_velocity_difference_index = 0u;
+    u32 maximum_speed_index = 0u;
+    u32 maximum_height_index = 0u;
+    f32 maximum_spawn_factor = spawn_debug_values[0].w;
+    f32 maximum_weighted_velocity_difference = spawn_debug_values[0].x;
+    f32 maximum_speed = Vec3_Length(Vec3_Create(velocity_values[0].x, velocity_values[0].y, velocity_values[0].z));
+    f32 maximum_height = position_values[0].y;
 
-    if (bucket_start_index < particle_count)
+    for (u32 particle_index = 1u; particle_index < particle_count; particle_index++)
     {
-        for (u32 bucket_index = bucket_start_index; bucket_index < particle_count; bucket_index++)
-        {
-            if (spatial_key_values[bucket_index] != sample_key || spatial_hash_values[bucket_index] != sample_hash)
-            {
-                break;
-            }
+        f32 spawn_factor = spawn_debug_values[particle_index].w;
+        f32 weighted_velocity_difference = spawn_debug_values[particle_index].x;
+        f32 speed = Vec3_Length(Vec3_Create(
+            velocity_values[particle_index].x,
+            velocity_values[particle_index].y,
+            velocity_values[particle_index].z));
+        f32 height = position_values[particle_index].y;
 
-            bucket_particle_count += 1;
+        if (spawn_factor > maximum_spawn_factor)
+        {
+            maximum_spawn_factor = spawn_factor;
+            maximum_spawn_factor_index = particle_index;
+        }
+
+        if (weighted_velocity_difference > maximum_weighted_velocity_difference)
+        {
+            maximum_weighted_velocity_difference = weighted_velocity_difference;
+            maximum_weighted_velocity_difference_index = particle_index;
+        }
+
+        if (speed > maximum_speed)
+        {
+            maximum_speed = speed;
+            maximum_speed_index = particle_index;
+        }
+
+        if (height > maximum_height)
+        {
+            maximum_height = height;
+            maximum_height_index = particle_index;
         }
     }
 
-    Vec4 sample_position = position_values[sample_index];
-    Vec4 sample_density = density_values[sample_index];
-    Vec4 sample_velocity = velocity_values[sample_index];
-    f32 sample_speed = Vec3_Length(Vec3_Create(sample_velocity.x, sample_velocity.y, sample_velocity.z));
+    u32 sample_indices[5] =
+    {
+        midpoint_index,
+        maximum_spawn_factor_index,
+        maximum_weighted_velocity_difference_index,
+        maximum_speed_index,
+        maximum_height_index,
+    };
+    const char *sample_labels[5] =
+    {
+        "midpoint",
+        "max_spawn",
+        "max_wvd",
+        "max_speed",
+        "max_height",
+    };
 
-    Base_LogInfo(
-        "Spatial sample %u: position=(%.2f, %.2f, %.2f) speed=%.3f density=%.3f near_density=%.3f key=%u hash=%u bucket_start=%u bucket_count=%u",
-        sample_index,
-        sample_position.x,
-        sample_position.y,
-        sample_position.z,
-        sample_speed,
-        sample_density.x,
-        sample_density.y,
-        sample_key,
-        sample_hash,
-        bucket_start_index,
-        bucket_particle_count);
+    for (u32 sample_number = 0u; sample_number < 5u; sample_number++)
+    {
+        u32 sample_index = sample_indices[sample_number];
+        u32 sample_key = spatial_key_values[sample_index];
+        u32 sample_hash = spatial_hash_values[sample_index];
+        u32 bucket_start_index = (sample_key < particle_count) ? spatial_offset_values[sample_key] : particle_count;
+        u32 bucket_particle_count = 0u;
+
+        if (bucket_start_index < particle_count)
+        {
+            for (u32 bucket_index = bucket_start_index; bucket_index < particle_count; bucket_index++)
+            {
+                if (spatial_key_values[bucket_index] != sample_key || spatial_hash_values[bucket_index] != sample_hash)
+                {
+                    break;
+                }
+
+                bucket_particle_count += 1u;
+            }
+        }
+
+        Vec4 sample_position = position_values[sample_index];
+        Vec4 sample_density = density_values[sample_index];
+        Vec4 sample_velocity = velocity_values[sample_index];
+        Vec4 sample_spawn_debug = spawn_debug_values[sample_index];
+        f32 sample_speed = Vec3_Length(Vec3_Create(sample_velocity.x, sample_velocity.y, sample_velocity.z));
+
+        Base_LogInfo(
+            "Spatial sample %s[%u]: position=(%.2f, %.2f, %.2f) speed=%.3f density=%.3f near_density=%.3f wvd=%.3f trapped=%.3f kinetic=%.3f spawn=%.5f key=%u hash=%u bucket_start=%u bucket_count=%u",
+            sample_labels[sample_number],
+            sample_index,
+            sample_position.x,
+            sample_position.y,
+            sample_position.z,
+            sample_speed,
+            sample_density.x,
+            sample_density.y,
+            sample_spawn_debug.x,
+            sample_spawn_debug.y,
+            sample_spawn_debug.z,
+            sample_spawn_debug.w,
+            sample_key,
+            sample_hash,
+            bucket_start_index,
+            bucket_particle_count);
+    }
 
     free(position_values);
     free(density_values);
     free(velocity_values);
+    free(spawn_debug_values);
     free(spatial_key_values);
     free(spatial_hash_values);
     free(spatial_offset_values);
@@ -1635,6 +1727,95 @@ static void Application_LogWhitewaterSpawnDebugSummary(Application *application)
         particle_count);
 }
 
+static void Application_LogWhitewaterClassSummary(Application *application)
+{
+    u32 maximum_whitewater_count = application->whitewater.maximum_particle_count;
+    if (maximum_whitewater_count == 0)
+    {
+        Base_LogInfo("Whitewater class summary skipped: no whitewater capacity.");
+        return;
+    }
+
+    u32 counter_values[2] = {0};
+    if (!OpenGL_ReadBuffer(
+            &application->whitewater.counter_buffer,
+            counter_values,
+            (i32) sizeof(counter_values)))
+    {
+        Base_LogError("Whitewater counter readback failed.");
+        return;
+    }
+
+    u32 active_whitewater_count = counter_values[0];
+    if (active_whitewater_count == 0)
+    {
+        Base_LogInfo("Whitewater class summary: no active whitewater particles.");
+        return;
+    }
+
+    SimulationWhitewaterParticleGpu *whitewater_particles =
+        (SimulationWhitewaterParticleGpu *) malloc((size_t) active_whitewater_count * sizeof(SimulationWhitewaterParticleGpu));
+    if (whitewater_particles == NULL)
+    {
+        Base_LogError("Failed to allocate whitewater class summary readback.");
+        return;
+    }
+
+    bool read_success = OpenGL_ReadBuffer(
+        &application->whitewater.particle_buffer,
+        whitewater_particles,
+        (i32) (active_whitewater_count * sizeof(SimulationWhitewaterParticleGpu)));
+
+    if (!read_success)
+    {
+        free(whitewater_particles);
+        Base_LogError("Whitewater particle readback failed.");
+        return;
+    }
+
+    u32 spray_count = 0u;
+    u32 foam_count = 0u;
+    u32 bubble_count = 0u;
+    f64 spray_neighbor_sum = 0.0;
+    f64 foam_neighbor_sum = 0.0;
+    f64 bubble_neighbor_sum = 0.0;
+
+    for (u32 particle_index = 0; particle_index < active_whitewater_count; particle_index++)
+    {
+        SimulationWhitewaterParticleGpu whitewater_particle = whitewater_particles[particle_index];
+        i32 classification = (i32) roundf(whitewater_particle.classification_data.x);
+        f32 neighbor_count = whitewater_particle.classification_data.y;
+
+        if (classification == 1)
+        {
+            spray_count += 1u;
+            spray_neighbor_sum += neighbor_count;
+        }
+        else if (classification == 2)
+        {
+            foam_count += 1u;
+            foam_neighbor_sum += neighbor_count;
+        }
+        else if (classification == 3)
+        {
+            bubble_count += 1u;
+            bubble_neighbor_sum += neighbor_count;
+        }
+    }
+
+    free(whitewater_particles);
+
+    Base_LogInfo(
+        "Whitewater classes: spray=%u avg_neighbors=%.2f foam=%u avg_neighbors=%.2f bubble=%u avg_neighbors=%.2f active=%u",
+        spray_count,
+        spray_count > 0u ? (f32) (spray_neighbor_sum / (f64) spray_count) : 0.0f,
+        foam_count,
+        foam_count > 0u ? (f32) (foam_neighbor_sum / (f64) foam_count) : 0.0f,
+        bubble_count,
+        bubble_count > 0u ? (f32) (bubble_neighbor_sum / (f64) bubble_count) : 0.0f,
+        active_whitewater_count);
+}
+
 static const char *Application_GetRenderModeName(SimulationRenderMode render_mode)
 {
     switch (render_mode)
@@ -1679,6 +1860,7 @@ static const char *Application_GetScreenFluidVisualizationModeName(SimulationScr
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_FOAM: return "whitewater foam";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_BUBBLE: return "whitewater bubble";
         case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEIGHBOR_COUNT: return "whitewater neighbors";
+        case SIMULATION_SCREEN_FLUID_VISUALIZATION_WHITEWATER_NEWBORN: return "whitewater newborn";
     }
 
     return "unknown";

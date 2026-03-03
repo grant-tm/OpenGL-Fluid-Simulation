@@ -42,6 +42,7 @@ bool SimulationPressure_Initialize (SimulationPressure *pressure)
     pressure->trapped_air_velocity_maximum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_trapped_air_velocity_maximum");
     pressure->kinetic_energy_minimum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_kinetic_energy_minimum");
     pressure->kinetic_energy_maximum_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_kinetic_energy_maximum");
+    pressure->surface_spawn_maximum_neighbors_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_surface_spawn_maximum_neighbors");
     pressure->bubble_scale_uniform = glGetUniformLocation(pressure->pressure_program_identifier, "u_bubble_scale");
     return true;
 }
@@ -103,6 +104,7 @@ bool SimulationPressure_Run (
         glUniform1f(pressure->trapped_air_velocity_maximum_uniform, whitewater_settings->trapped_air_velocity_maximum);
         glUniform1f(pressure->kinetic_energy_minimum_uniform, whitewater_settings->kinetic_energy_minimum);
         glUniform1f(pressure->kinetic_energy_maximum_uniform, whitewater_settings->kinetic_energy_maximum);
+        glUniform1i(pressure->surface_spawn_maximum_neighbors_uniform, whitewater_settings->surface_spawn_maximum_neighbors);
         glUniform1f(pressure->bubble_scale_uniform, whitewater_settings->bubble_scale);
     }
 

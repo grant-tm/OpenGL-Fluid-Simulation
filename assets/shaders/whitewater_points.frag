@@ -4,6 +4,7 @@ in vec2 v_quad_uv;
 in float v_linear_depth;
 in float v_surface_depth;
 in float v_neighbor_count;
+in float v_lifetime;
 
 uniform int u_debug_output_mode;
 
@@ -22,6 +23,18 @@ void main(void)
     {
         float neighbor_count_value = clamp(v_neighbor_count / 20.0, 0.0, 1.0);
         fragment_color = vec4(neighbor_count_value, v_surface_depth, v_linear_depth, 1.0);
+        return;
+    }
+
+    if (u_debug_output_mode == 2)
+    {
+        float newborn_value = clamp((v_lifetime - 13.5) / 1.5, 0.0, 1.0);
+        if (newborn_value <= 0.0)
+        {
+            discard;
+        }
+
+        fragment_color = vec4(newborn_value, v_surface_depth, v_linear_depth, 1.0);
         return;
     }
 

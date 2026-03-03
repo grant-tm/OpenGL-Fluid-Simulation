@@ -71,6 +71,7 @@ uniform float u_trapped_air_velocity_minimum;
 uniform float u_trapped_air_velocity_maximum;
 uniform float u_kinetic_energy_minimum;
 uniform float u_kinetic_energy_maximum;
+uniform int u_surface_spawn_maximum_neighbors;
 uniform float u_bubble_scale;
 
 const uint HASH_K1 = 15823u;
@@ -153,8 +154,13 @@ vec3 CalculateOrthonormal(vec3 direction)
     }
 
     vec3 normalized_direction = normalize(direction);
-    vec3 axis = abs(normalized_direction.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    return normalize(cross(axis, normalized_direction));
+    float a = sign((sign(normalized_direction.x) + 0.5) * (sign(normalized_direction.z) + 0.5));
+    float b = sign((sign(normalized_direction.y) + 0.5) * (sign(normalized_direction.z) + 0.5));
+    vec3 orthonormal_vector = vec3(
+        a * normalized_direction.z,
+        b * normalized_direction.z,
+        -a * normalized_direction.x - b * normalized_direction.y);
+    return normalize(orthonormal_vector);
 }
 
 void main(void)
@@ -283,7 +289,8 @@ void main(void)
                 dot(current_velocity, current_velocity),
                 u_kinetic_energy_minimum,
                 u_kinetic_energy_maximum);
-        float spawn_factor = trapped_air_factor * kinetic_energy_factor * u_delta_time;
+        float surface_factor = neighbor_count <= u_surface_spawn_maximum_neighbors ? 1.0 : 0.0;
+        float spawn_factor = trapped_air_factor * kinetic_energy_factor * surface_factor * u_delta_time;
         whitewater_spawn_debug_values[particle_index] = vec4(
             weighted_velocity_difference,
             trapped_air_factor,
@@ -292,7 +299,12 @@ void main(void)
 
         int spawn_count = int(floor(spawn_factor));
         float fractional_spawn_remainder = spawn_factor - float(spawn_count);
-        uint random_state = HashRandom(particle_index + uint(u_simulation_time * 1000.0));
+        uvec4 random_seed_components = floatBitsToUint(vec4(particle_position, u_simulation_time));
+        uint random_state =
+            random_seed_components.x * 19349669u +
+            random_seed_components.y * 83492837u +
+            random_seed_components.z * 73856131u +
+            random_seed_components.w * 4785773u;
         if (RandomValue(random_state) < fractional_spawn_remainder)
         {
             spawn_count += 1;
