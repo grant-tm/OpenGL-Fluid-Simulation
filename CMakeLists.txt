@@ -10,13 +10,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(FluidSim
-    imgui-master/imgui.cpp
-    imgui-master/imgui_demo.cpp
-    imgui-master/imgui_draw.cpp
-    imgui-master/imgui_tables.cpp
-    imgui-master/imgui_widgets.cpp
-    imgui-master/backends/imgui_impl_opengl3.cpp
-    imgui-master/backends/imgui_impl_win32.cpp
+    external/imgui/imgui.cpp
+    external/imgui/imgui_demo.cpp
+    external/imgui/imgui_draw.cpp
+    external/imgui/imgui_tables.cpp
+    external/imgui/imgui_widgets.cpp
+    external/imgui/backends/imgui_impl_opengl3.cpp
+    external/imgui/backends/imgui_impl_win32.cpp
     src/base.c
     src/gui.cpp
     src/glad.c
@@ -39,8 +39,8 @@ add_executable(FluidSim
 
 target_include_directories(FluidSim PRIVATE
     inc
-    imgui-master
-    imgui-master/backends
+    external/imgui
+    external/imgui/backends
 )
 
 target_compile_options(FluidSim PRIVATE

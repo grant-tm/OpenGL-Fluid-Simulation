@@ -102,6 +102,10 @@ static void Win32_DestroyWindowAndContext(Application *application);
 static bool Application_InitializeSimulationView(Application *application);
 static void Application_InitializeScaleModel(Application *application);
 static void Application_ApplyParameterProfile(Application *application, SimulationParameterProfile parameter_profile);
+static bool Application_AppendSpawnData(
+    SimulationSpawnData *destination_spawn_data,
+    const SimulationSpawnData *source_spawn_data);
+static bool Application_GenerateInitialSpawnData(Application *application);
 static void Application_ShutdownSimulationResources(Application *application);
 static bool Application_InitializeSimulationResources(Application *application);
 static bool Application_RunInitializationWarmup(Application *application);
@@ -246,6 +250,138 @@ static void Application_ApplyParameterProfile(Application *application, Simulati
 
         Base_LogInfo("Parameter profile: baseline");
     }
+}
+
+static bool Application_AppendSpawnData(
+    SimulationSpawnData *destination_spawn_data,
+    const SimulationSpawnData *source_spawn_data)
+{
+    const u32 destination_particle_count = destination_spawn_data->particle_count;
+    const u32 source_particle_count = source_spawn_data->particle_count;
+    const u32 combined_particle_count = destination_particle_count + source_particle_count;
+
+    Vec4 *combined_positions = NULL;
+    Vec4 *combined_predicted_positions = NULL;
+    Vec4 *combined_velocities = NULL;
+    Vec4 *combined_densities = NULL;
+
+    Base_Assert(destination_spawn_data != NULL);
+    Base_Assert(source_spawn_data != NULL);
+
+    if (source_particle_count == 0)
+    {
+        return true;
+    }
+
+    combined_positions = (Vec4 *) calloc(combined_particle_count, sizeof(Vec4));
+    combined_predicted_positions = (Vec4 *) calloc(combined_particle_count, sizeof(Vec4));
+    combined_velocities = (Vec4 *) calloc(combined_particle_count, sizeof(Vec4));
+    combined_densities = (Vec4 *) calloc(combined_particle_count, sizeof(Vec4));
+
+    if (combined_positions == NULL ||
+        combined_predicted_positions == NULL ||
+        combined_velocities == NULL ||
+        combined_densities == NULL)
+    {
+        free(combined_positions);
+        free(combined_predicted_positions);
+        free(combined_velocities);
+        free(combined_densities);
+        Base_LogError("Failed to allocate combined spawn data.");
+        return false;
+    }
+
+    if (destination_particle_count > 0)
+    {
+        memcpy(combined_positions, destination_spawn_data->positions, destination_particle_count * sizeof(Vec4));
+        memcpy(
+            combined_predicted_positions,
+            destination_spawn_data->predicted_positions,
+            destination_particle_count * sizeof(Vec4));
+        memcpy(combined_velocities, destination_spawn_data->velocities, destination_particle_count * sizeof(Vec4));
+        memcpy(combined_densities, destination_spawn_data->densities, destination_particle_count * sizeof(Vec4));
+    }
+
+    memcpy(
+        combined_positions + destination_particle_count,
+        source_spawn_data->positions,
+        source_particle_count * sizeof(Vec4));
+    memcpy(
+        combined_predicted_positions + destination_particle_count,
+        source_spawn_data->predicted_positions,
+        source_particle_count * sizeof(Vec4));
+    memcpy(
+        combined_velocities + destination_particle_count,
+        source_spawn_data->velocities,
+        source_particle_count * sizeof(Vec4));
+    memcpy(
+        combined_densities + destination_particle_count,
+        source_spawn_data->densities,
+        source_particle_count * sizeof(Vec4));
+
+    free(destination_spawn_data->positions);
+    free(destination_spawn_data->predicted_positions);
+    free(destination_spawn_data->velocities);
+    free(destination_spawn_data->densities);
+
+    destination_spawn_data->positions = combined_positions;
+    destination_spawn_data->predicted_positions = combined_predicted_positions;
+    destination_spawn_data->velocities = combined_velocities;
+    destination_spawn_data->densities = combined_densities;
+    destination_spawn_data->particle_count = combined_particle_count;
+    return true;
+}
+
+static bool Application_GenerateInitialSpawnData(Application *application)
+{
+    SimulationSpawnBox left_spawn_box = {0};
+    SimulationSpawnBox right_spawn_box = {0};
+    SimulationSpawnData left_spawn_data = {0};
+    SimulationSpawnData right_spawn_data = {0};
+    bool generation_succeeded = false;
+    const f32 scene_spawn_spacing_multiplier = 1.08f;
+    const f32 scene_spawn_particle_spacing = application->scale_model.particle_spacing * scene_spawn_spacing_multiplier;
+
+    Base_Assert(application != NULL);
+
+    left_spawn_box.center = Vec3_Create(-2.35f, 2.20f, -2.35f);
+    left_spawn_box.size = Vec3_Create(2.90f, 3.20f, 2.20f);
+    left_spawn_box.particle_spacing = scene_spawn_particle_spacing;
+    left_spawn_box.position_jitter_scale = 0.03f;
+    left_spawn_box.initial_velocity = Vec3_Create(0.00f, 0.00f, 0.00f);
+
+    right_spawn_box.center = Vec3_Create(2.35f, 2.20f, 2.35f);
+    right_spawn_box.size = Vec3_Create(2.90f, 3.20f, 2.20f);
+    right_spawn_box.particle_spacing = scene_spawn_particle_spacing;
+    right_spawn_box.position_jitter_scale = 0.03f;
+    right_spawn_box.initial_velocity = Vec3_Create(0.00f, 0.00f, 0.00f);
+
+    if (!Simulation_GenerateSpawnDataBox(&left_spawn_data, left_spawn_box))
+    {
+        goto cleanup;
+    }
+
+    if (!Simulation_GenerateSpawnDataBox(&right_spawn_data, right_spawn_box))
+    {
+        goto cleanup;
+    }
+
+    application->initial_spawn_data = left_spawn_data;
+    memset(&left_spawn_data, 0, sizeof(left_spawn_data));
+
+    if (!Application_AppendSpawnData(&application->initial_spawn_data, &right_spawn_data))
+    {
+        Simulation_ReleaseSpawnData(&application->initial_spawn_data);
+        memset(&application->initial_spawn_data, 0, sizeof(application->initial_spawn_data));
+        goto cleanup;
+    }
+
+    generation_succeeded = true;
+
+cleanup:
+    Simulation_ReleaseSpawnData(&left_spawn_data);
+    Simulation_ReleaseSpawnData(&right_spawn_data);
+    return generation_succeeded;
 }
 
 int main(void)
@@ -903,17 +1039,10 @@ static void Win32_DestroyWindowAndContext(Application *application)
 static bool Application_InitializeSimulationView(Application *application)
 {
     const SimulationParameterProfile parameter_profile = DEFAULT_SIMULATION_PARAMETER_PROFILE;
-    SimulationSpawnBox spawn_box = {0};
 
     Application_ApplyParameterProfile(application, parameter_profile);
 
-    spawn_box.center = Vec3_Create(-1.6f, 1.2f, -1.6f);
-    spawn_box.size = Vec3_Create(4.0f, 4.0f, 2.0f);
-    spawn_box.particle_spacing = application->scale_model.particle_spacing;
-    spawn_box.position_jitter_scale = 0.08f;
-    spawn_box.initial_velocity = Vec3_Create(0.0f, 0.0f, 0.0f);
-
-    if (!Simulation_GenerateSpawnDataBox(&application->initial_spawn_data, spawn_box))
+    if (!Application_GenerateInitialSpawnData(application))
     {
         return false;
     }
@@ -971,6 +1100,7 @@ static bool Application_InitializeSimulationView(Application *application)
         application->scale_model.whitewater_billboard_scale);
     Base_LogInfo(
         "Parameter profile switch: set DEFAULT_SIMULATION_PARAMETER_PROFILE in src/main.c to baseline or example.");
+    Base_LogInfo("Spawn setup: two upper-corner fluid blobs that fall and interact under gravity.");
 
     if (!Application_InitializeSimulationResources(application))
     {
@@ -1099,7 +1229,7 @@ static bool Application_RunInitializationWarmup(Application *application)
 {
     Base_Assert(application != NULL);
 
-    const i32 warmup_step_count = 36;
+    const i32 warmup_step_count = 0;
     const f32 warmup_delta_time_seconds = 1.0f / 120.0f;
 
     for (i32 warmup_step_index = 0; warmup_step_index < warmup_step_count; warmup_step_index++)
