@@ -1231,13 +1231,21 @@ static void SimulationRenderer_DrawScreenFluid (
 static void SimulationRenderer_DrawBounds (SimulationRenderer *renderer, Mat4 projection_matrix, Mat4 view_matrix, Mat4 model_matrix)
 {
     glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_LINE_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glLineWidth(1.5f);
     glUseProgram(renderer->line_program_identifier);
     glUniformMatrix4fv(renderer->line_projection_uniform, 1, GL_FALSE, projection_matrix.elements);
     glUniformMatrix4fv(renderer->line_view_uniform, 1, GL_FALSE, view_matrix.elements);
     glUniformMatrix4fv(renderer->line_model_uniform, 1, GL_FALSE, model_matrix.elements);
-    glUniform4f(renderer->line_color_uniform, 0.85f, 0.88f, 0.95f, 1.0f);
+    glUniform4f(renderer->line_color_uniform, 0.85f, 0.88f, 0.95f, 0.92f);
     glBindVertexArray(renderer->bounds_vao_identifier);
     glDrawArrays(GL_LINES, 0, 24);
+    glDisable(GL_LINE_SMOOTH);
+    glLineWidth(1.0f);
+    glDisable(GL_BLEND);
 }
 
 static void SimulationRenderer_DrawWhitewaterToFoamTexture (
