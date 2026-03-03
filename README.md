@@ -9,7 +9,7 @@
   </tr>
 </table>
 
-The project is an attempted direct translation of (Sebastian Lague's Unity fluid simulation)[https://github.com/SebLague/Fluid-Sim] into C / OpenGL, with mixed success. I tried to reimplmement the techniques in the reference project as faithfully as possible, so any success of my simulation owes all credit to Sebastian Lague, and all shortcomings are my own.
+The project is an attempted direct translation of [Sebastian Lague's Unity fluid simulation](https://github.com/SebLague/Fluid-Sim) into C / OpenGL, with mixed success. I tried to reimplmement the techniques in the reference project as faithfully as possible, so any success of my simulation owes all credit to Sebastian Lague, and all shortcomings are my own.
 
 ## What It Does
 
