@@ -3,6 +3,7 @@
 
 #include "base.h"
 #include "glad.h"
+#include "gui.h"
 #include "opengl_helpers.h"
 #include "simulation_data.h"
 #include "simulation_collision.h"
@@ -350,6 +351,7 @@ int main(void)
 static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM wide_param, LPARAM long_param)
 {
     Application *application = (Application *) GetWindowLongPtrA(window_handle, GWLP_USERDATA);
+    bool gui_handled = Gui_HandleWindowMessage(window_handle, message, wide_param, long_param);
 
     if (message == WM_NCCREATE)
     {
@@ -388,6 +390,11 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
 
         case WM_KEYDOWN:
         {
+            if (Gui_WantsCaptureKeyboard() && wide_param != VK_ESCAPE)
+            {
+                return 0;
+            }
+
             if (wide_param == VK_ESCAPE)
             {
                 if (application != NULL) application->is_running = false;
@@ -777,6 +784,11 @@ static LRESULT CALLBACK MainWindowProc(HWND window_handle, UINT message, WPARAM 
         }
     }
 
+    if (gui_handled)
+    {
+        return 0;
+    }
+
     return DefWindowProcA(window_handle, message, wide_param, long_param);
 }
 
@@ -863,6 +875,8 @@ static bool Win32_CreateWindowAndContext(Application *application, i32 client_wi
 
 static void Win32_DestroyWindowAndContext(Application *application)
 {
+    Gui_Shutdown();
+
     Application_ShutdownSimulationResources(application);
     Simulation_ReleaseSpawnData(&application->initial_spawn_data);
 
@@ -963,13 +977,20 @@ static bool Application_InitializeSimulationView(Application *application)
         return false;
     }
 
-    if (!Application_RunInitializationWarmup(application))
-    {
-        Application_ShutdownSimulationResources(application);
-        return false;
-    }
+      if (!Application_RunInitializationWarmup(application))
+      {
+          Application_ShutdownSimulationResources(application);
+          return false;
+      }
 
-    Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
+      if (!Gui_Initialize(application->window_handle))
+      {
+          Base_LogError("Failed to initialize the GUI.");
+          Application_ShutdownSimulationResources(application);
+          return false;
+      }
+
+      Base_LogInfo("Particle renderer initialized with %u particles.", application->particle_buffers.particle_count);
     Base_LogInfo("Camera controls: arrow keys rotate, W/S zoom.");
     Base_LogInfo("Debug views: B basic, D density, V velocity, H spatial hash, T/Y/U/F whitewater spawn terms.");
     Base_LogInfo("Render controls: M toggles particles/screen-fluid, 7 composite, 8 packed, 9 normals, 0 smooth-depth, - hard-depth, = depth-delta, [ foam, ] foam-depth, Z spray, X foam-only, C bubble, L whitewater-neighbors, G cycles bilateral/gaussian/bilateral2d smoothing, K logs screen-fluid targets.");
@@ -1921,6 +1942,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
     LARGE_INTEGER performance_frequency = {0};
     LARGE_INTEGER swap_start_counter = {0};
     LARGE_INTEGER swap_end_counter = {0};
+    GuiFrameData gui_frame_data = {0};
 
     if (application->was_resized)
     {
@@ -1937,14 +1959,83 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
     {
         Application_UpdateDensityVisualizationRange(application);
     }
-    else if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_VELOCITY)
-    {
-        Application_UpdateVelocityVisualizationRange(application);
-    }
-    SimulationRenderer_UpdateCamera(&application->camera, delta_time_seconds);
-    SimulationRenderer_Render(
-        &application->renderer,
-        &application->particle_buffers,
+      else if (application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_VELOCITY)
+      {
+          Application_UpdateVelocityVisualizationRange(application);
+      }
+      else if (
+          application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_WEIGHTED_VELOCITY_DIFFERENCE ||
+          application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_TRAPPED_AIR_FACTOR ||
+          application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_KINETIC_ENERGY_FACTOR ||
+          application->particle_visualization_mode == SIMULATION_PARTICLE_VISUALIZATION_WHITEWATER_SPAWN_FACTOR)
+      {
+          Application_UpdateWhitewaterSpawnDebugVisualizationRange(application);
+      }
+      SimulationRenderer_UpdateCamera(&application->camera, delta_time_seconds);
+      Gui_BeginFrame();
+      gui_frame_data.simulation_is_paused = &application->simulation_is_paused;
+      gui_frame_data.simulation_single_step_requested = &application->simulation_single_step_requested;
+      gui_frame_data.reset_requested = &application->reset_requested;
+      gui_frame_data.step_settings = &application->step_settings;
+      gui_frame_data.pressure_settings = &application->pressure_settings;
+      gui_frame_data.viscosity_settings = &application->viscosity_settings;
+      gui_frame_data.collision_settings = &application->collision_settings;
+      gui_frame_data.whitewater_settings = &application->whitewater_settings;
+      gui_frame_data.scale_model = &application->scale_model;
+      gui_frame_data.render_mode = &application->render_mode;
+      gui_frame_data.particle_visualization_mode = &application->particle_visualization_mode;
+      gui_frame_data.screen_fluid_visualization_mode = &application->screen_fluid_visualization_mode;
+      gui_frame_data.screen_fluid_smoothing_mode = &application->screen_fluid_smoothing_mode;
+      gui_frame_data.current_frames_per_second = delta_time_seconds > 0.0f ? (1.0f / delta_time_seconds) : 0.0f;
+      gui_frame_data.current_frame_delta_time_milliseconds = delta_time_seconds * 1000.0f;
+      gui_frame_data.current_swap_buffers_milliseconds = application->most_recent_swap_buffers_milliseconds;
+      gui_frame_data.whitewater_active_count = application->most_recent_whitewater_particle_count;
+      gui_frame_data.main_particle_count = application->particle_buffers.particle_count;
+      gui_frame_data.simulation_timings.external_forces_milliseconds = application->pipeline.last_debug_timings.external_forces_milliseconds;
+      gui_frame_data.simulation_timings.spatial_hash_milliseconds = application->pipeline.last_debug_timings.spatial_hash_milliseconds;
+      gui_frame_data.simulation_timings.reorder_milliseconds = application->pipeline.last_debug_timings.reorder_milliseconds;
+      gui_frame_data.simulation_timings.density_milliseconds = application->pipeline.last_debug_timings.density_milliseconds;
+      gui_frame_data.simulation_timings.pressure_milliseconds = application->pipeline.last_debug_timings.pressure_milliseconds;
+      gui_frame_data.simulation_timings.viscosity_milliseconds = application->pipeline.last_debug_timings.viscosity_milliseconds;
+      gui_frame_data.simulation_timings.collision_milliseconds = application->pipeline.last_debug_timings.collision_milliseconds;
+      gui_frame_data.simulation_timings.integrate_positions_milliseconds = application->pipeline.last_debug_timings.integrate_positions_milliseconds;
+      gui_frame_data.simulation_timings.total_milliseconds = application->pipeline.last_debug_timings.total_milliseconds;
+      gui_frame_data.renderer_timings.bounds_milliseconds = application->renderer.last_debug_timings.bounds_milliseconds;
+      gui_frame_data.renderer_timings.particles_milliseconds = application->renderer.last_debug_timings.particles_milliseconds;
+      gui_frame_data.renderer_timings.scene_copy_milliseconds = application->renderer.last_debug_timings.scene_copy_milliseconds;
+      gui_frame_data.renderer_timings.shadow_milliseconds = application->renderer.last_debug_timings.shadow_milliseconds;
+      gui_frame_data.renderer_timings.surface_inputs_milliseconds = application->renderer.last_debug_timings.surface_inputs_milliseconds;
+      gui_frame_data.renderer_timings.prepare_milliseconds = application->renderer.last_debug_timings.prepare_milliseconds;
+      gui_frame_data.renderer_timings.blur_milliseconds = application->renderer.last_debug_timings.blur_milliseconds;
+      gui_frame_data.renderer_timings.normal_milliseconds = application->renderer.last_debug_timings.normal_milliseconds;
+      gui_frame_data.renderer_timings.composite_milliseconds = application->renderer.last_debug_timings.composite_milliseconds;
+      gui_frame_data.renderer_timings.whitewater_milliseconds = application->renderer.last_debug_timings.whitewater_milliseconds;
+      gui_frame_data.renderer_timings.total_milliseconds = application->renderer.last_debug_timings.total_milliseconds;
+      gui_frame_data.renderer_timings.gpu_scene_copy_milliseconds = application->renderer.last_debug_timings.gpu_scene_copy_milliseconds;
+      gui_frame_data.renderer_timings.gpu_shadow_milliseconds = application->renderer.last_debug_timings.gpu_shadow_milliseconds;
+      gui_frame_data.renderer_timings.gpu_surface_inputs_milliseconds = application->renderer.last_debug_timings.gpu_surface_inputs_milliseconds;
+      gui_frame_data.renderer_timings.gpu_blur_milliseconds = application->renderer.last_debug_timings.gpu_blur_milliseconds;
+      gui_frame_data.renderer_timings.gpu_normal_milliseconds = application->renderer.last_debug_timings.gpu_normal_milliseconds;
+      gui_frame_data.renderer_timings.gpu_composite_milliseconds = application->renderer.last_debug_timings.gpu_composite_milliseconds;
+      gui_frame_data.renderer_timings.gpu_total_milliseconds = application->renderer.last_debug_timings.gpu_total_milliseconds;
+      Gui_Draw(&gui_frame_data);
+      application->pipeline_settings.step_settings = application->step_settings;
+      application->pipeline_settings.time_scale = application->step_settings.time_scale;
+      application->density_settings.smoothing_radius = application->pressure_settings.smoothing_radius;
+      application->spatial_hash_settings.cell_size = application->pressure_settings.smoothing_radius;
+      application->volume_density_settings.smoothing_radius = application->pressure_settings.smoothing_radius;
+      application->pipeline_settings.density_settings = application->density_settings;
+      application->pipeline_settings.spatial_hash_settings = application->spatial_hash_settings;
+      application->pipeline_settings.pressure_settings = application->pressure_settings;
+      application->pipeline_settings.viscosity_settings = application->viscosity_settings;
+      application->pipeline_settings.collision_settings = application->collision_settings;
+      application->whitewater_settings.gravity = application->step_settings.gravity;
+      application->whitewater_settings.target_density = application->pressure_settings.target_density;
+      application->whitewater_settings.smoothing_radius = application->pressure_settings.smoothing_radius;
+      application->whitewater_settings.bounds_size = application->collision_settings.bounds_size;
+      SimulationRenderer_Render(
+          &application->renderer,
+          &application->particle_buffers,
         &application->whitewater,
         &application->volume_density,
         application->camera,
@@ -1958,11 +2049,12 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
         application->density_visualization_maximum,
         application->velocity_visualization_minimum,
         application->velocity_visualization_maximum,
-        application->whitewater_spawn_debug_visualization_minimum,
-        application->whitewater_spawn_debug_visualization_maximum,
-        application->client_width,
-        application->client_height);
-    QueryPerformanceFrequency(&performance_frequency);
+          application->whitewater_spawn_debug_visualization_minimum,
+          application->whitewater_spawn_debug_visualization_maximum,
+          application->client_width,
+          application->client_height);
+      Gui_Render();
+      QueryPerformanceFrequency(&performance_frequency);
     QueryPerformanceCounter(&swap_start_counter);
     SwapBuffers(application->device_context_handle);
     QueryPerformanceCounter(&swap_end_counter);

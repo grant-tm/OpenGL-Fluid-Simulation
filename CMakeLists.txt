@@ -1,13 +1,24 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(FluidSim LANGUAGES C)
+project(FluidSim LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(FluidSim
+    imgui-master/imgui.cpp
+    imgui-master/imgui_demo.cpp
+    imgui-master/imgui_draw.cpp
+    imgui-master/imgui_tables.cpp
+    imgui-master/imgui_widgets.cpp
+    imgui-master/backends/imgui_impl_opengl3.cpp
+    imgui-master/backends/imgui_impl_win32.cpp
     src/base.c
+    src/gui.cpp
     src/glad.c
     src/main.c
     src/simulation_collision.c
@@ -28,10 +39,13 @@ add_executable(FluidSim
 
 target_include_directories(FluidSim PRIVATE
     inc
+    imgui-master
+    imgui-master/backends
 )
 
 target_compile_options(FluidSim PRIVATE
     $<$<C_COMPILER_ID:MSVC>:/W4 /wd4100>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /wd4100>
 )
 
 target_link_libraries(FluidSim PRIVATE
