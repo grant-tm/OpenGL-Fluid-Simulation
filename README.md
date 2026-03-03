@@ -2,6 +2,17 @@
 
 `FluidSim` is a native Win32/OpenGL fluid simulation demo written in C, with Dear ImGui used for live controls and diagnostics.
 
+<table>
+  <tr>
+    <td align="center"><strong>Demo</strong></td>
+    <td align="center"><strong>Demo Alt</strong></td>
+  </tr>
+  <tr>
+    <td><img src="assets/images/demo.gif" width="100%"></td>
+    <td><img src="assets/images/demo_alt.gif" width="100%"></td>
+  </tr>
+</table>
+
 The project is an attempted direct translation of (Sebastian Lague's Unity fluid simulation)[https://github.com/SebLague/Fluid-Sim] into C / OpenGL, with mixed success. I tried to reimplmement the techniques in the reference project as faithfully as possible, so any success of my simulation owes all credit to Sebastian Lague, and all shortcomings are my own.
 
 ## What It Does

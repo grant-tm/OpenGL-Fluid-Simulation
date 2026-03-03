@@ -59,9 +59,11 @@ set_target_properties(FluidSim PROPERTIES
 )
 
 add_custom_command(TARGET FluidSim POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/assets"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
     "$<TARGET_FILE_DIR:FluidSim>/assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/assets/shaders"
+    "$<TARGET_FILE_DIR:FluidSim>/assets/shaders"
 )
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT FluidSim)
