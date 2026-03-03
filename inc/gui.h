@@ -56,6 +56,14 @@ typedef struct GuiFrameData
     bool *simulation_is_paused;
     bool *simulation_single_step_requested;
     bool *reset_requested;
+    bool *frame_dump_is_active;
+    bool *frame_dump_request_start;
+    bool *frame_dump_request_stop;
+    bool *frame_dump_capture_gui;
+    i32 *frame_dump_total_frame_count;
+    i32 *frame_dump_frames_per_second;
+    char *frame_dump_output_directory;
+    i32 frame_dump_output_directory_capacity;
     SimulationStepSettings *step_settings;
     SimulationPressureSettings *pressure_settings;
     SimulationViscositySettings *viscosity_settings;
@@ -71,6 +79,7 @@ typedef struct GuiFrameData
     f32 current_swap_buffers_milliseconds;
     u32 whitewater_active_count;
     u32 main_particle_count;
+    u32 frame_dump_written_frame_count;
 } GuiFrameData;
 
 bool Gui_Initialize(HWND window_handle);

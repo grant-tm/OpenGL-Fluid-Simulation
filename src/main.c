@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 typedef struct Application
 {
@@ -72,6 +73,17 @@ typedef struct Application
     f32 most_recent_frame_delta_time_seconds;
     f32 most_recent_swap_buffers_milliseconds;
     u32 most_recent_whitewater_particle_count;
+    bool frame_dump_is_active;
+    bool frame_dump_request_start;
+    bool frame_dump_request_stop;
+    bool frame_dump_capture_gui;
+    i32 frame_dump_total_frame_count;
+    i32 frame_dump_frames_per_second;
+    u32 frame_dump_written_frame_count;
+    char frame_dump_output_directory[MAX_PATH];
+    char frame_dump_session_directory[MAX_PATH];
+    u8 *frame_dump_pixel_data;
+    u32 frame_dump_pixel_data_capacity_bytes;
     SimulationRenderMode render_mode;
     SimulationParticleVisualizationMode particle_visualization_mode;
     SimulationScreenFluidVisualizationMode screen_fluid_visualization_mode;
@@ -116,6 +128,15 @@ static void Application_UpdateSimulation(Application *application, f32 frame_del
 static void Application_UpdateDensityVisualizationRange(Application *application);
 static void Application_UpdateVelocityVisualizationRange(Application *application);
 static void Application_UpdateWhitewaterSpawnDebugVisualizationRange(Application *application);
+static bool Application_CreateDirectoriesRecursive(const char *directory_path);
+static bool Application_StartFrameDump(Application *application);
+static void Application_StopFrameDump(Application *application);
+static bool Application_WriteFrameDumpTga(
+    const char *file_path,
+    const u8 *pixel_data,
+    i32 image_width,
+    i32 image_height);
+static bool Application_CaptureCurrentFrame(Application *application);
 static void Application_LogSpatialHashInspection(Application *application);
 static void Application_LogVolumeDensitySummary(Application *application);
 static void Application_LogWhitewaterSpawnDebugSummary(Application *application);
@@ -1042,6 +1063,13 @@ static void Win32_DestroyWindowAndContext(Application *application)
         DestroyWindow(application->window_handle);
         application->window_handle = NULL;
     }
+
+    if (application->frame_dump_pixel_data != NULL)
+    {
+        free(application->frame_dump_pixel_data);
+        application->frame_dump_pixel_data = NULL;
+        application->frame_dump_pixel_data_capacity_bytes = 0u;
+    }
 }
 
 static bool Application_InitializeSimulationView(Application *application)
@@ -1076,6 +1104,17 @@ static bool Application_InitializeSimulationView(Application *application)
     application->screen_fluid_smoothing_mode = SIMULATION_SCREEN_FLUID_SMOOTHING_GAUSSIAN;
     application->simulation_is_paused = false;
     application->simulation_single_step_requested = false;
+    application->frame_dump_is_active = false;
+    application->frame_dump_request_start = false;
+    application->frame_dump_request_stop = false;
+    application->frame_dump_capture_gui = false;
+    application->frame_dump_total_frame_count = 600;
+    application->frame_dump_frames_per_second = 60;
+    application->frame_dump_written_frame_count = 0u;
+    application->frame_dump_pixel_data = NULL;
+    application->frame_dump_pixel_data_capacity_bytes = 0u;
+    snprintf(application->frame_dump_output_directory, sizeof(application->frame_dump_output_directory), "captures");
+    application->frame_dump_session_directory[0] = '\0';
     application->simulation_accumulator_seconds = 0.0f;
     application->fixed_simulation_delta_time_seconds = 1.0f / 60.0f;
     application->maximum_frame_delta_time_seconds = 1.0f / 15.0f;
@@ -2068,6 +2107,255 @@ static void OpenGL_LogContextInfo(void)
     Base_LogInfo("Press Escape to close the window.");
 }
 
+static bool Application_CreateDirectoriesRecursive(const char *directory_path)
+{
+    char mutable_directory_path[MAX_PATH] = {0};
+    size_t path_length = 0;
+
+    Base_Assert(directory_path != NULL);
+
+    path_length = strlen(directory_path);
+    if (path_length == 0 || path_length >= BASE_ARRAY_COUNT(mutable_directory_path))
+    {
+        return false;
+    }
+
+    memcpy(mutable_directory_path, directory_path, path_length + 1);
+
+    for (size_t path_index = 0; path_index < path_length; path_index++)
+    {
+        if (mutable_directory_path[path_index] != '\\' && mutable_directory_path[path_index] != '/')
+        {
+            continue;
+        }
+
+        if (path_index == 0) continue;
+        if (path_index == 2 && mutable_directory_path[1] == ':') continue;
+
+        char previous_character = mutable_directory_path[path_index];
+        mutable_directory_path[path_index] = '\0';
+
+        if (strlen(mutable_directory_path) > 0)
+        {
+            if (!CreateDirectoryA(mutable_directory_path, NULL))
+            {
+                DWORD last_error = GetLastError();
+                if (last_error != ERROR_ALREADY_EXISTS)
+                {
+                    mutable_directory_path[path_index] = previous_character;
+                    return false;
+                }
+            }
+        }
+
+        mutable_directory_path[path_index] = previous_character;
+    }
+
+    if (!CreateDirectoryA(mutable_directory_path, NULL))
+    {
+        DWORD last_error = GetLastError();
+        if (last_error != ERROR_ALREADY_EXISTS)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool Application_StartFrameDump(Application *application)
+{
+    SYSTEMTIME local_time = {0};
+
+    Base_Assert(application != NULL);
+
+    if (application->frame_dump_is_active)
+    {
+        return true;
+    }
+
+    if (application->frame_dump_output_directory[0] == '\0')
+    {
+        snprintf(application->frame_dump_output_directory, sizeof(application->frame_dump_output_directory), "captures");
+    }
+
+    if (!Application_CreateDirectoriesRecursive(application->frame_dump_output_directory))
+    {
+        Base_LogError("Failed to create frame dump output directory: %s", application->frame_dump_output_directory);
+        return false;
+    }
+
+    GetLocalTime(&local_time);
+    snprintf(
+        application->frame_dump_session_directory,
+        sizeof(application->frame_dump_session_directory),
+        "%s\\frame_dump_%04u%02u%02u_%02u%02u%02u",
+        application->frame_dump_output_directory,
+        (u32) local_time.wYear,
+        (u32) local_time.wMonth,
+        (u32) local_time.wDay,
+        (u32) local_time.wHour,
+        (u32) local_time.wMinute,
+        (u32) local_time.wSecond);
+
+    if (!Application_CreateDirectoriesRecursive(application->frame_dump_session_directory))
+    {
+        Base_LogError("Failed to create frame dump session directory: %s", application->frame_dump_session_directory);
+        application->frame_dump_session_directory[0] = '\0';
+        return false;
+    }
+
+    application->frame_dump_written_frame_count = 0u;
+    application->frame_dump_is_active = true;
+    application->frame_dump_request_start = false;
+    application->frame_dump_request_stop = false;
+    application->simulation_is_paused = false;
+    application->simulation_single_step_requested = false;
+
+    Base_LogInfo(
+        "Frame dump started: %s | fps=%d | frames=%d | gui=%s",
+        application->frame_dump_session_directory,
+        application->frame_dump_frames_per_second,
+        application->frame_dump_total_frame_count,
+        application->frame_dump_capture_gui ? "on" : "off");
+
+    return true;
+}
+
+static void Application_StopFrameDump(Application *application)
+{
+    Base_Assert(application != NULL);
+
+    if (!application->frame_dump_is_active && !application->frame_dump_request_stop)
+    {
+        return;
+    }
+
+    if (application->frame_dump_is_active)
+    {
+        Base_LogInfo(
+            "Frame dump finished: wrote %u frame(s) to %s",
+            application->frame_dump_written_frame_count,
+            application->frame_dump_session_directory[0] != '\0' ? application->frame_dump_session_directory : "(unknown)");
+    }
+
+    application->frame_dump_is_active = false;
+    application->frame_dump_request_start = false;
+    application->frame_dump_request_stop = false;
+}
+
+static bool Application_WriteFrameDumpTga(
+    const char *file_path,
+    const u8 *pixel_data,
+    i32 image_width,
+    i32 image_height)
+{
+    u8 tga_header[18] = {0};
+    FILE *file_handle = NULL;
+    size_t pixel_data_size = 0;
+
+    Base_Assert(file_path != NULL);
+    Base_Assert(pixel_data != NULL);
+    Base_Assert(image_width > 0);
+    Base_Assert(image_height > 0);
+
+    tga_header[2] = 2;
+    tga_header[12] = (u8) (image_width & 0xFF);
+    tga_header[13] = (u8) ((image_width >> 8) & 0xFF);
+    tga_header[14] = (u8) (image_height & 0xFF);
+    tga_header[15] = (u8) ((image_height >> 8) & 0xFF);
+    tga_header[16] = 24;
+    tga_header[17] = 0;
+
+    if (fopen_s(&file_handle, file_path, "wb") != 0 || file_handle == NULL)
+    {
+        return false;
+    }
+
+    if (fwrite(tga_header, sizeof(tga_header), 1, file_handle) != 1)
+    {
+        fclose(file_handle);
+        return false;
+    }
+
+    pixel_data_size = (size_t) image_width * (size_t) image_height * 3u;
+    if (fwrite(pixel_data, pixel_data_size, 1, file_handle) != 1)
+    {
+        fclose(file_handle);
+        return false;
+    }
+
+    fclose(file_handle);
+    return true;
+}
+
+static bool Application_CaptureCurrentFrame(Application *application)
+{
+    char file_path[MAX_PATH] = {0};
+    u32 pixel_data_size_bytes = 0u;
+
+    Base_Assert(application != NULL);
+
+    if (!application->frame_dump_is_active)
+    {
+        return true;
+    }
+
+    if (application->client_width <= 0 || application->client_height <= 0)
+    {
+        return false;
+    }
+
+    pixel_data_size_bytes = (u32) (application->client_width * application->client_height * 3);
+    if (application->frame_dump_pixel_data_capacity_bytes < pixel_data_size_bytes)
+    {
+        u8 *resized_pixel_data = (u8 *) realloc(application->frame_dump_pixel_data, pixel_data_size_bytes);
+        if (resized_pixel_data == NULL)
+        {
+            Base_LogError("Failed to resize frame dump pixel buffer.");
+            return false;
+        }
+
+        application->frame_dump_pixel_data = resized_pixel_data;
+        application->frame_dump_pixel_data_capacity_bytes = pixel_data_size_bytes;
+    }
+
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(
+        0,
+        0,
+        application->client_width,
+        application->client_height,
+        GL_BGR,
+        GL_UNSIGNED_BYTE,
+        application->frame_dump_pixel_data);
+
+    snprintf(
+        file_path,
+        sizeof(file_path),
+        "%s\\frame_%06u.tga",
+        application->frame_dump_session_directory,
+        application->frame_dump_written_frame_count);
+
+    if (!Application_WriteFrameDumpTga(
+            file_path,
+            application->frame_dump_pixel_data,
+            application->client_width,
+            application->client_height))
+    {
+        Base_LogError("Failed to write frame dump file: %s", file_path);
+        return false;
+    }
+
+    application->frame_dump_written_frame_count++;
+    if (application->frame_dump_written_frame_count >= (u32) application->frame_dump_total_frame_count)
+    {
+        Application_StopFrameDump(application);
+    }
+
+    return true;
+}
+
 static void OpenGL_UpdateViewport(Application *application)
 {
     if (application->client_width <= 0 || application->client_height <= 0) return;
@@ -2086,6 +2374,18 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
     {
         OpenGL_UpdateViewport(application);
         application->was_resized = false;
+    }
+
+    if (application->frame_dump_request_stop)
+    {
+        Application_StopFrameDump(application);
+    }
+    if (application->frame_dump_request_start)
+    {
+        if (!Application_StartFrameDump(application))
+        {
+            application->frame_dump_request_start = false;
+        }
     }
 
     Application_UpdateSimulation(application, delta_time_seconds);
@@ -2114,6 +2414,14 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
       gui_frame_data.simulation_is_paused = &application->simulation_is_paused;
       gui_frame_data.simulation_single_step_requested = &application->simulation_single_step_requested;
       gui_frame_data.reset_requested = &application->reset_requested;
+      gui_frame_data.frame_dump_is_active = &application->frame_dump_is_active;
+      gui_frame_data.frame_dump_request_start = &application->frame_dump_request_start;
+      gui_frame_data.frame_dump_request_stop = &application->frame_dump_request_stop;
+      gui_frame_data.frame_dump_capture_gui = &application->frame_dump_capture_gui;
+      gui_frame_data.frame_dump_total_frame_count = &application->frame_dump_total_frame_count;
+      gui_frame_data.frame_dump_frames_per_second = &application->frame_dump_frames_per_second;
+      gui_frame_data.frame_dump_output_directory = application->frame_dump_output_directory;
+      gui_frame_data.frame_dump_output_directory_capacity = (i32) BASE_ARRAY_COUNT(application->frame_dump_output_directory);
       gui_frame_data.step_settings = &application->step_settings;
       gui_frame_data.pressure_settings = &application->pressure_settings;
       gui_frame_data.viscosity_settings = &application->viscosity_settings;
@@ -2129,6 +2437,7 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
       gui_frame_data.current_swap_buffers_milliseconds = application->most_recent_swap_buffers_milliseconds;
       gui_frame_data.whitewater_active_count = application->most_recent_whitewater_particle_count;
       gui_frame_data.main_particle_count = application->particle_buffers.particle_count;
+      gui_frame_data.frame_dump_written_frame_count = application->frame_dump_written_frame_count;
       gui_frame_data.simulation_timings.external_forces_milliseconds = application->pipeline.last_debug_timings.external_forces_milliseconds;
       gui_frame_data.simulation_timings.spatial_hash_milliseconds = application->pipeline.last_debug_timings.spatial_hash_milliseconds;
       gui_frame_data.simulation_timings.reorder_milliseconds = application->pipeline.last_debug_timings.reorder_milliseconds;
@@ -2191,7 +2500,21 @@ static void OpenGL_RenderFrame(Application *application, f32 delta_time_seconds)
           application->whitewater_spawn_debug_visualization_maximum,
           application->client_width,
           application->client_height);
+      if (application->frame_dump_is_active && !application->frame_dump_capture_gui)
+      {
+          if (!Application_CaptureCurrentFrame(application))
+          {
+              Application_StopFrameDump(application);
+          }
+      }
       Gui_Render();
+      if (application->frame_dump_is_active && application->frame_dump_capture_gui)
+      {
+          if (!Application_CaptureCurrentFrame(application))
+          {
+              Application_StopFrameDump(application);
+          }
+      }
       QueryPerformanceFrequency(&performance_frequency);
     QueryPerformanceCounter(&swap_start_counter);
     SwapBuffers(application->device_context_handle);
@@ -2239,13 +2562,21 @@ static void Application_Run(Application *application)
     while (application->is_running)
     {
         LARGE_INTEGER current_counter = {0};
+        f32 delta_time_seconds = 0.0f;
         QueryPerformanceCounter(&current_counter);
 
-        f32 delta_time_seconds = (f32)
-        (
-            (double) (current_counter.QuadPart - previous_counter.QuadPart) /
-            (double) performance_frequency.QuadPart
-        );
+        if (application->frame_dump_is_active)
+        {
+            delta_time_seconds = 1.0f / (f32) Base_ClampF32((f32) application->frame_dump_frames_per_second, 1.0f, 240.0f);
+        }
+        else
+        {
+            delta_time_seconds = (f32)
+            (
+                (double) (current_counter.QuadPart - previous_counter.QuadPart) /
+                (double) performance_frequency.QuadPart
+            );
+        }
 
         previous_counter = current_counter;
         Application_ProcessMessages(application);

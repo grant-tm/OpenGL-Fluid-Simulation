@@ -419,6 +419,37 @@ namespace
             frame_data->main_particle_count,
             frame_data->whitewater_active_count);
 
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Frame Dump", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::InputText(
+                "Output directory",
+                frame_data->frame_dump_output_directory,
+                frame_data->frame_dump_output_directory_capacity);
+            ImGui::DragInt("Capture FPS", frame_data->frame_dump_frames_per_second, 1.0f, 1, 240);
+            ImGui::DragInt("Frame count", frame_data->frame_dump_total_frame_count, 1.0f, 1, 100000);
+            ImGui::Checkbox("Capture GUI", frame_data->frame_dump_capture_gui);
+
+            if (*frame_data->frame_dump_is_active)
+            {
+                ImGui::Text(
+                    "Capturing frame %u / %d",
+                    frame_data->frame_dump_written_frame_count,
+                    *frame_data->frame_dump_total_frame_count);
+                if (ImGui::Button("Stop Capture"))
+                {
+                    *frame_data->frame_dump_request_stop = true;
+                }
+            }
+            else
+            {
+                if (ImGui::Button("Start Capture"))
+                {
+                    *frame_data->frame_dump_request_start = true;
+                }
+            }
+        }
+
         ImGui::End();
     }
 }
